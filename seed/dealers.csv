@@ -1,16 +1,19 @@
-Dealer_ID,Dealer_Name,Area,City
-DLR-JKT-01,PLACEHOLDER Dealer Jakarta Selatan,Jabodetabek,Jakarta Selatan
-DLR-JKT-02,PLACEHOLDER Dealer Jakarta Utara,Jabodetabek,Jakarta Utara
-DLR-JKT-03,PLACEHOLDER Dealer Tangerang,Jabodetabek,Tangerang
-DLR-JKT-04,PLACEHOLDER Dealer Bekasi,Jabodetabek,Bekasi
-DLR-JKT-05,PLACEHOLDER Dealer Depok,Jabodetabek,Depok
-DLR-JBR-01,PLACEHOLDER Dealer Bandung,Jawa Barat,Bandung
-DLR-JBR-02,PLACEHOLDER Dealer Bogor,Jawa Barat,Bogor
-DLR-JTG-01,PLACEHOLDER Dealer Semarang,Jawa Tengah,Semarang
-DLR-JTG-02,PLACEHOLDER Dealer Solo,Jawa Tengah,Surakarta
-DLR-JTM-01,PLACEHOLDER Dealer Surabaya,Jawa Timur,Surabaya
-DLR-JTM-02,PLACEHOLDER Dealer Malang,Jawa Timur,Malang
-DLR-BAL-01,PLACEHOLDER Dealer Denpasar,Bali-Nusra,Denpasar
-DLR-SUM-01,PLACEHOLDER Dealer Medan,Sumatera,Medan
-DLR-SUM-02,PLACEHOLDER Dealer Palembang,Sumatera,Palembang
-DLR-KAL-01,PLACEHOLDER Dealer Balikpapan,Kalimantan,Balikpapan
+Dealer Name,Address1,Address2,Address3,Telp,Category,Area Manager,Area Manager alias,Dealer Code
+PT. Arista Jaya Abadi,Jl. T. Amir Hamzah No. 49,Medan,20117,(061)6615555,Dealer,Novan Ardana,NA,AJM
+PT. Cakrawala Automotif Rabhasa,"Jl. Denpasar Raya Blok D-2, Kav. 12",Jakarta Selatan,12940,(021) 252 2292,Dealer,Sony Nur Irawan,SI,CAR
+PT. Cakrawala Automotif Rabhasa - Bintaro,Jl. Boulevard Bintaro Jaya Jl. CBD No.2 Blok F1,Tangerang Selatan,15220,(021) 22215222,Dealer,Sony Nur Irawan,SI,CAB
+PT. Citrakarya Pranata,Jl. Soekarno-Hatta No. 727,Bandung,40286,(022) 730 3053,Dealer,Sony Nur Irawan,SI,CKP
+PT. Dipo Angkasa Motor,Jl. Pluit Selatan No. 1 C,Jakarta Utara,14440,(021) 660 2051,Dealer,Novan Ardana,NA,DAM
+PT. Hartono Raya Motor Denpasar,"Jl. Raya By Pass, I Gusti Ngurah  Rai No. 14 - 16 Tuban",Denpasar,80361,(0361) 752 742,Dealer,Sony Nur Irawan,SI,HDP
+PT. Hartono Raya Motor Semarang,"Jl. Raya Semarang - Kendal Km. 10, Tambak Aji",Semarang,50185,(024)  866 5858,Dealer,Sony Nur Irawan,SI,HSM
+PT. Hartono Raya Motor Surabaya,Jl. Demak 166 - 170,Surabaya,60172,(031) 532 1481,Dealer,Sony Nur Irawan,SI,HSB
+PT. Kedaung Satrya Motor,Perum Citraland Surya Citra Utama Blok CG Kav. 5,Surabaya,60219,(031) 51161111,Dealer,Novan Ardana,NA,KSM
+PT. Kumala Bintang Cemerlang,"Jl. AP Pettarani Kav. E-18 No. E-12, Tidung",Makassar,90222,(041) 14672888,Dealer,Novan Ardana,NA,KSBC
+PT. Mercindo Autorama,Jl. Mampang Prapatan No. 69-70,Jakarta Selatan,12790,(021) 798 2304,Dealer,Novan Ardana,NA,MAR
+PT. Panji Rama Otomotif BSD,"Commercial de Park Lot II No. 16, Jl. BSD Boulevard Utara",Tangerang Selatan,15331,021 8082 6688,Dealer,Novan Ardana,NA,PRB
+PT. Panji Rama Otomotif Gandaria,"Jl. Sultan Iskandar Muda No.97, Gandaria Utara ",Jakarta Selatan,12240,021 5080 4688,Dealer,Novan Ardana,NA,PRO
+PT. Suri Motor Indonesia,Jl. T.B. Simatupang Kav. 5,Jakarta Selatan,12430,(021) 7653366,Dealer,Sony Nur Irawan,SI,SMI
+,,,,,,,,
+,,,,,,,,
+PT. Cakrawala Automotif Rabhasa Body & Paint Center,"Jl. R.E. Martadinata No. 15, Pamulang",Tangerang Selatan,15417,(021) 252 2292,Dealer Body and Paint,,,
+PT. Inchcape Indomobil Distribution Indonesia,"Jl. RE Martadinata, Cipayung, Ciputat",Tangerang Selatan,15411,(021)27595999,Distributor,,,

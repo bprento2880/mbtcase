@@ -20,23 +20,22 @@
  * dashboard/performa di Fase 0, bukan merepresentasikan alur bisnis yang benar.
  */
 
-// ── Seed: DEALERS (salinan dari seed/dealers.csv) ───────────────────────────
+// ── Seed: DEALERS (data riil dari seed/dealers.csv, lengkap dengan area manager & dealer code) ───
 const DEALER_SEED = [
-  ['DLR-JKT-01', 'PLACEHOLDER Dealer Jakarta Selatan', 'Jabodetabek', 'Jakarta Selatan'],
-  ['DLR-JKT-02', 'PLACEHOLDER Dealer Jakarta Utara', 'Jabodetabek', 'Jakarta Utara'],
-  ['DLR-JKT-03', 'PLACEHOLDER Dealer Tangerang', 'Jabodetabek', 'Tangerang'],
-  ['DLR-JKT-04', 'PLACEHOLDER Dealer Bekasi', 'Jabodetabek', 'Bekasi'],
-  ['DLR-JKT-05', 'PLACEHOLDER Dealer Depok', 'Jabodetabek', 'Depok'],
-  ['DLR-JBR-01', 'PLACEHOLDER Dealer Bandung', 'Jawa Barat', 'Bandung'],
-  ['DLR-JBR-02', 'PLACEHOLDER Dealer Bogor', 'Jawa Barat', 'Bogor'],
-  ['DLR-JTG-01', 'PLACEHOLDER Dealer Semarang', 'Jawa Tengah', 'Semarang'],
-  ['DLR-JTG-02', 'PLACEHOLDER Dealer Solo', 'Jawa Tengah', 'Surakarta'],
-  ['DLR-JTM-01', 'PLACEHOLDER Dealer Surabaya', 'Jawa Timur', 'Surabaya'],
-  ['DLR-JTM-02', 'PLACEHOLDER Dealer Malang', 'Jawa Timur', 'Malang'],
-  ['DLR-BAL-01', 'PLACEHOLDER Dealer Denpasar', 'Bali-Nusra', 'Denpasar'],
-  ['DLR-SUM-01', 'PLACEHOLDER Dealer Medan', 'Sumatera', 'Medan'],
-  ['DLR-SUM-02', 'PLACEHOLDER Dealer Palembang', 'Sumatera', 'Palembang'],
-  ['DLR-KAL-01', 'PLACEHOLDER Dealer Balikpapan', 'Kalimantan', 'Balikpapan']
+  ['DLR-AJM-01', 'PT. Arista Jaya Abadi', 'Sumatera', 'Medan', 'Novan Ardana', 'NA', 'AJM'],
+  ['DLR-CAR-01', 'PT. Cakrawala Automotif Rabhasa', 'Jabodetabek', 'Jakarta Selatan', 'Sony Nur Irawan', 'SI', 'CAR'],
+  ['DLR-CAB-01', 'PT. Cakrawala Automotif Rabhasa - Bintaro', 'Jabodetabek', 'Tangerang Selatan', 'Sony Nur Irawan', 'SI', 'CAB'],
+  ['DLR-CKP-01', 'PT. Citrakarya Pranata', 'Jawa Barat', 'Bandung', 'Sony Nur Irawan', 'SI', 'CKP'],
+  ['DLR-DAM-01', 'PT. Dipo Angkasa Motor', 'Jabodetabek', 'Jakarta Utara', 'Novan Ardana', 'NA', 'DAM'],
+  ['DLR-HDP-01', 'PT. Hartono Raya Motor Denpasar', 'Bali-Nusra', 'Denpasar', 'Sony Nur Irawan', 'SI', 'HDP'],
+  ['DLR-HSM-01', 'PT. Hartono Raya Motor Semarang', 'Jawa Tengah', 'Semarang', 'Sony Nur Irawan', 'SI', 'HSM'],
+  ['DLR-HSB-01', 'PT. Hartono Raya Motor Surabaya', 'Jawa Timur', 'Surabaya', 'Sony Nur Irawan', 'SI', 'HSB'],
+  ['DLR-KSM-01', 'PT. Kedaung Satrya Motor', 'Jawa Timur', 'Surabaya', 'Novan Ardana', 'NA', 'KSM'],
+  ['DLR-KBC-01', 'PT. Kumala Bintang Cemerlang', 'Sulawesi', 'Makassar', 'Novan Ardana', 'NA', 'KSBC'],
+  ['DLR-MAR-01', 'PT. Mercindo Autorama', 'Jabodetabek', 'Jakarta Selatan', 'Novan Ardana', 'NA', 'MAR'],
+  ['DLR-PRB-01', 'PT. Panji Rama Otomotif BSD', 'Jabodetabek', 'Tangerang Selatan', 'Novan Ardana', 'NA', 'PRB'],
+  ['DLR-PRO-01', 'PT. Panji Rama Otomotif Gandaria', 'Jabodetabek', 'Jakarta Selatan', 'Novan Ardana', 'NA', 'PRO'],
+  ['DLR-SMI-01', 'PT. Suri Motor Indonesia', 'Jabodetabek', 'Jakarta Selatan', 'Sony Nur Irawan', 'SI', 'SMI']
 ];
 
 // ── Seed: VEHICLE_MODELS (salinan dari seed/models.csv) ─────────────────────
@@ -170,7 +169,7 @@ function applyPlainTextFormat_(sheet, headers) {
   const tsColumns = TIMESTAMP_COLUMNS[sheetName] || [];
   if (tsColumns.length === 0) return;
 
-  const MAX_ROWS_TO_FORMAT = 20000; // cukup luas untuk pertumbuhan data bertahun-tahun
+  const MAX_ROWS_TO_FORMAT = 2000;
   tsColumns.forEach(function (colName) {
     const colIdx = headers.indexOf(colName);
     if (colIdx === -1) return;
@@ -208,12 +207,12 @@ function seedDealers_() {
   const sheet = getSheet_(SHEETS.DEALERS);
   const now = nowIso_();
   const rows = DEALER_SEED.map(function (d) {
-    // [Dealer_ID, Dealer_Name, Area, City] -> tambahkan Area_Manager_User_ID
-    // (kosong, diisi saat IIDI_Area_Mgr dibuat di Fase 1), Status, Created_At.
+    // Format: [Dealer_ID, Dealer_Name, Area, City, Area_Manager_Name, Area_Manager_Alias, Dealer_Code]
+    // Output: [Dealer_ID, Dealer_Name, Area, Area_Manager_User_ID (kosong), City, Status, Created_At]
     return [d[0], d[1], d[2], '', d[3], 'ACTIVE', now];
   });
   sheet.getRange(2, 1, rows.length, SCHEMA[SHEETS.DEALERS].length).setValues(rows);
-  Logger.log('DEALERS di-seed: ' + rows.length + ' dealer (PLACEHOLDER — ganti dengan data riil).');
+  Logger.log('DEALERS di-seed: ' + rows.length + ' dealer (data riil dengan area manager & dealer code).');
 }
 
 // ── 7. Seed VEHICLE_MODELS ───────────────────────────────────────────────────
@@ -224,7 +223,7 @@ function seedVehicleModels_() {
     return [m[0], m[1], m[2], 'TRUE', now];
   });
   sheet.getRange(2, 1, rows.length, SCHEMA[SHEETS.VEHICLE_MODELS].length).setValues(rows);
-  Logger.log('VEHICLE_MODELS di-seed: ' + rows.length + ' model (PLACEHOLDER — sesuaikan dengan model yang benar-benar dilayani).');
+  Logger.log('VEHICLE_MODELS di-seed: ' + rows.length + ' model.');
 }
 
 // ── 8. User admin pertama ────────────────────────────────────────────────────
