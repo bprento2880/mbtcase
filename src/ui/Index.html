@@ -30,9 +30,11 @@
   </div>
 
   <script>
-    // URL /exec disuntik dari server. Index.html dievaluasi sebagai TEMPLATE,
-    // jadi scriptlet <?= ?> jalan di sini. File yang dimuat lewat include()
-    // TIDAK dievaluasi sebagai template — jangan taruh scriptlet di sana.
+     // URL /exec disuntik dari server. HANYA Index.html yang dievaluasi sebagai
+    // template, jadi scriptlet cuma boleh ada di file ini. File yang dimuat
+    // lewat include() TIDAK dievaluasi sebagai template.
+    // PENTING: jangan pernah menulis sintaks scriptlet di dalam komentar.
+    // Parser GAS memindai teks mentah dan tidak mengenal komentar JS.
     window.__MBTCASE_EXEC_URL__ = "<?= execUrl ?>";
 
     // Watchdog: kalau Alpine tidak muncul dalam 6 detik (CDN diblokir/404),
