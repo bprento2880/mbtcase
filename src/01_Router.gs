@@ -24,6 +24,10 @@ const ROUTES = {
 function doGet(e) {
   // Hanya melayani shell SPA. TIDAK ADA data API lewat GET (02-api-contract.md §1).
   const tpl = HtmlService.createTemplateFromFile('ui/Index');
+  // Disuntik ke template supaya frontend tetap punya endpoint API yang benar
+  // saat halaman dibuka LANGSUNG di /exec (iframe sandbox GAS),
+  // bukan lewat Cloudflare Worker /tcase/. Lihat ui/js_core.html API_URL.
+  tpl.execUrl = execUrl_();
   return tpl.evaluate()
     .setTitle('MB T-CASE')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
@@ -60,6 +64,15 @@ function doPost(e) {
       ok: false,
       error: { code: appErr.code, message: appErr.message, fields: appErr.fields }
     });
+  }
+}
+
+/** URL /exec deployment aktif. Dipakai doGet untuk menyuntik endpoint ke SPA. */
+function execUrl_() {
+  try {
+    return ScriptApp.getService().getUrl() || '';
+  } catch (err) {
+    return '';   // scope script.scriptapp belum disetujui -> biarkan kosong
   }
 }
 

@@ -169,7 +169,7 @@ function applyPlainTextFormat_(sheet, headers) {
   const tsColumns = TIMESTAMP_COLUMNS[sheetName] || [];
   if (tsColumns.length === 0) return;
 
-  const MAX_ROWS_TO_FORMAT = 2000;
+  const MAX_ROWS_TO_FORMAT = 20000; // cukup luas untuk pertumbuhan data bertahun-tahun
   tsColumns.forEach(function (colName) {
     const colIdx = headers.indexOf(colName);
     if (colIdx === -1) return;
