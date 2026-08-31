@@ -1,0 +1,20 @@
+Model_Code,Model_Name,Category
+W177,A-Class Sedan/Hatch (W177),Sedan
+C118,CLA-Class (C118),Sedan
+W206,C-Class (W206),Sedan
+W205,C-Class (W205 - legacy),Sedan
+W214,E-Class (W214),Sedan
+W213,E-Class (W213 - legacy),Sedan
+W223,S-Class (W223),Sedan
+W222,S-Class (W222 - legacy),Sedan
+X247,GLA-Class (X247),SUV
+X253,GLC-Class (X253),SUV
+X254,GLC-Class (X254),SUV
+V167,GLE-Class (V167),SUV
+X167,GLS-Class (X167),SUV
+W463,G-Class (W463),SUV
+H247,GLB-Class (H247),SUV
+R232,SL-Class (R232),Cabriolet
+A238,E-Class Cabriolet (A238),Cabriolet
+C257,CLS-Class (C257),Coupe
+V447,V-Class (V447),MPV

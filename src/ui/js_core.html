@@ -1,0 +1,78 @@
+<script>
+  // Endpoint API = path yang sama dengan halaman ini (worker Cloudflare
+  // meneruskan GET (SPA) dan POST (API) ke GAS /exec yang sama).
+  // Lihat CLAUDE.md §2 dan docs/00-getting-started.md Langkah 6.
+  const API_URL = window.location.origin + window.location.pathname.replace(/\/?$/, '/');
+
+  /**
+   * Pola client baku (docs/02-api-contract.md §6). Content-Type WAJIB text/plain
+   * (CLAUDE.md §3.2 — application/json memicu preflight OPTIONS yang tidak bisa
+   * dijawab GAS). Token selalu di body, TIDAK PERNAH di header (CLAUDE.md §3.1).
+   */
+  async function api(action, payload) {
+    payload = payload || {};
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: action, token: (window.Store ? Store.token : ''), payload: payload })
+    });
+    const out = await res.json();
+    if (!out.ok) {
+      if (out.error.code === 'UNAUTHENTICATED' && window.Store) Store.logout();
+      throw out.error;
+    }
+    return out.data;
+  }
+
+  /**
+   * Store global Alpine. Fase 0 baru berisi token/user (kosong) + status ping.
+   * Fase 1+ menambah: login(), logout(), router SPA, dst — cukup tambah properti
+   * dan method ke object yang dikembalikan di sini, jangan bikin store baru.
+   */
+  function appStore() {
+    return {
+      token: sessionStorage.getItem('mbtcase_token') || '',
+      user: null,
+      ping: { status: 'checking' }, // 'checking' | 'ok' | 'error'
+      loginForm: { email: '', pin: '', loading: false, error: '' },
+
+      init() {
+        window.Store = this; // supaya api() bisa baca token tanpa Alpine context
+        this.checkPing();
+      },
+
+      async checkPing() {
+        try {
+          await api('sys.ping', {});
+          this.ping.status = 'ok';
+        } catch (e) {
+          this.ping.status = 'error';
+        }
+      },
+
+      async submitLogin() {
+        this.loginForm.error = '';
+        this.loginForm.loading = true;
+        try {
+          // NOTE: auth.login baru diimplementasikan penuh di Fase 1
+          // (docs/03-rbac.md, docs/00-roadmap.md). Sampai saat itu, action ini
+          // akan mengembalikan error NOT_FOUND — itu diharapkan, bukan bug.
+          const data = await api('auth.login', { email: this.loginForm.email, pin: this.loginForm.pin });
+          this.token = data.token;
+          this.user = data.user;
+          sessionStorage.setItem('mbtcase_token', data.token);
+        } catch (err) {
+          this.loginForm.error = (err && err.message) ? err.message : 'Login gagal. Coba lagi.';
+        } finally {
+          this.loginForm.loading = false;
+        }
+      },
+
+      logout() {
+        this.token = '';
+        this.user = null;
+        sessionStorage.removeItem('mbtcase_token');
+      }
+    };
+  }
+</script>

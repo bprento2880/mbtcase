@@ -1,0 +1,47 @@
+<!--
+  CDN di-pin ke versi tetap (bukan "latest") sesuai CLAUDE.md §8.
+  Kalau perlu upgrade, ganti nomor versi di sini secara sadar, jangan biarkan mengambang.
+-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.13/dist/tailwind.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/[email protected]/css/all.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/[email protected]/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/[email protected]/dist/chart.umd.min.js"></script>
+
+<style>
+  /* Satu warna aksen saja untuk aksi utama (CLAUDE.md §8). Warna lain hanya untuk
+     makna: hijau/kuning/merah khusus status SLA. */
+  :root {
+    --accent: #1b3a6b;      /* biru Mercedes-Benz tua — aksi utama */
+    --accent-hover: #142c52;
+    --sla-on-time: #10b981; /* hijau */
+    --sla-near-due: #f59e0b;/* kuning */
+    --sla-overdue: #ef4444; /* merah */
+    --sla-none: #9ca3af;    /* abu-abu */
+  }
+
+  [x-cloak] { display: none !important; }
+
+  .btn-primary {
+    background-color: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover { background-color: var(--accent-hover); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+  .badge-sla-on-time   { background-color: color-mix(in srgb, var(--sla-on-time) 15%, white);  color: var(--sla-on-time); }
+  .badge-sla-near-due  { background-color: color-mix(in srgb, var(--sla-near-due) 15%, white); color: var(--sla-near-due); }
+  .badge-sla-overdue   { background-color: color-mix(in srgb, var(--sla-overdue) 15%, white);  color: var(--sla-overdue); }
+  .badge-sla-none      { background-color: color-mix(in srgb, var(--sla-none) 15%, white);     color: var(--sla-none); }
+
+  /* Skeleton loader (dipakai mulai Fase 8 dashboard) — bukan spinner layar penuh. */
+  .skeleton {
+    background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 37%, #e5e7eb 63%);
+    background-size: 400% 100%;
+    animation: skeleton-pulse 1.4s ease infinite;
+    border-radius: 0.375rem;
+  }
+  @keyframes skeleton-pulse {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+  }
+</style>
