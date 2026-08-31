@@ -2,10 +2,10 @@
   CDN di-pin ke versi tetap (bukan "latest") sesuai CLAUDE.md §8.
   Kalau perlu upgrade, ganti nomor versi di sini secara sadar, jangan biarkan mengambang.
 -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.13/dist/tailwind.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/[email protected]/css/all.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/[email protected]/dist/cdn.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/[email protected]/dist/chart.umd.min.js"></script>
+<script src="https://cdn.tailwindcss.com/3.4.13"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.6.0/css/all.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
 <style>
   /* Satu warna aksen saja untuk aksi utama (CLAUDE.md §8). Warna lain hanya untuk
@@ -19,7 +19,13 @@
     --sla-none: #9ca3af;    /* abu-abu */
   }
 
+  /* x-cloak hanya berlaku selama Alpine BELUM siap. Kalau CDN gagal, kelas
+     .alpine-dead dipasang watchdog di Index.html dan x-cloak dinetralkan,
+     supaya kegagalan CDN tidak pernah lagi jadi layar putih total. */
   [x-cloak] { display: none !important; }
+  body.alpine-dead [x-cloak] { display: revert !important; }
+  #boot-error { display: none; }
+  body.alpine-dead #boot-error { display: block; }
 
   .btn-primary {
     background-color: var(--accent);

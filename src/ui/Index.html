@@ -24,6 +24,24 @@
 
   </div>
 
+  <div id="boot-error" style="max-width:420px;margin:15vh auto;padding:20px;border:1px solid #fecaca;background:#fef2f2;border-radius:12px;font:14px/1.5 system-ui,sans-serif;color:#7f1d1d">
+    <b>Gagal memuat komponen halaman.</b><br>
+    Periksa koneksi internet, lalu muat ulang halaman. Kalau tetap gagal, lapor ke IIDI Technical.
+  </div>
+
+  <script>
+    // URL /exec disuntik dari server. Index.html dievaluasi sebagai TEMPLATE,
+    // jadi scriptlet <?= ?> jalan di sini. File yang dimuat lewat include()
+    // TIDAK dievaluasi sebagai template — jangan taruh scriptlet di sana.
+    window.__MBTCASE_EXEC_URL__ = "<?= execUrl ?>";
+
+    // Watchdog: kalau Alpine tidak muncul dalam 6 detik (CDN diblokir/404),
+    // netralkan x-cloak dan tampilkan pesan, JANGAN biarkan layar putih.
+    setTimeout(function () {
+      if (!window.Alpine) document.body.classList.add('alpine-dead');
+    }, 6000);
+  </script>
+
   <?!= include('ui/js_core') ?>
   <?!= include('ui/js_pages') ?>
 </body>

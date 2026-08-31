@@ -1,8 +1,13 @@
 <script>
-  // Endpoint API = path yang sama dengan halaman ini (worker Cloudflare
-  // meneruskan GET (SPA) dan POST (API) ke GAS /exec yang sama).
-  // Lihat CLAUDE.md §2 dan docs/00-getting-started.md Langkah 6.
-  const API_URL = window.location.origin + window.location.pathname.replace(/\/?$/, '/');
+  // Di balik Cloudflare Worker (/tcase/), endpoint API = path halaman ini.
+  // Kalau dibuka LANGSUNG di /exec, halaman berjalan di iframe sandbox
+  // *.googleusercontent.com/userCodeAppPanel — origin+pathname di situ BUKAN
+  // endpoint API. Karena itu dipakai URL /exec yang disuntik server.
+  const IS_GAS_SANDBOX = /googleusercontent\.com$/.test(location.hostname)
+                      || /(^|\.)script\.google\.com$/.test(location.hostname);
+  const API_URL = IS_GAS_SANDBOX
+    ? (window.__MBTCASE_EXEC_URL__ || '')
+    : (location.origin + location.pathname.replace(/\/?$/, '/'));
 
   /**
    * Pola client baku (docs/02-api-contract.md §6). Content-Type WAJIB text/plain
