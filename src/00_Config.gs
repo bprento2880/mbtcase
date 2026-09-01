@@ -200,6 +200,9 @@ function scriptPropOptional_(key, fallback) {
   return (val === null || val === undefined || val === '') ? fallback : val;
 }
 
+/** Versi aplikasi. Dinaikkan tiap fase; dikembalikan oleh sys.ping. */
+const APP_VERSION = 'fase-5';
+
 // ── CONFIG sheet reader (cache 6 jam, key-value) ─────────────────────────
 const Config_ = {
   all: function () {
@@ -230,8 +233,10 @@ const Config_ = {
 
 // Nilai default CONFIG — dipakai oleh 90_Setup.gs saat seed pertama kali.
 // Penjelasan tiap key: docs/01-schema.md §19.
-const DEFAULT_CONFIG = [
+  const DEFAULT_CONFIG = [
   ['CASE_COUNTER', '0', 'Angka terakhir yang dipakai untuk Case_No. Naik terus.'],
+  ['ATTACH_COUNTER', '0', 'Angka terakhir Attachment_ID (AT-000001). Naik terus, tidak pernah turun'],
+  ['THREAD_COUNTER', '0', 'Angka terakhir Thread_ID (TH-000001). Naik terus, tidak pernah turun'],
   ['SLA_DEALER_SELF_DIAG_DAYS', '3', 'Hari kerja, target self-diagnosis dealer.'],
   ['SLA_IIDI_RESPONSE_DAYS', '1', 'Hari kerja, target respons awal IIDI.'],
   ['SLA_DEALER_RESPONSE_DAYS', '2', 'Hari kerja, target dealer balas data request.'],
@@ -255,11 +260,35 @@ const DEFAULT_CONFIG = [
 ];
 
 // ── Primitif kripto PIN (docs/03-rbac.md §4) ─────────────────────────────
-// Ditaruh di sini (bukan 12_Auth.gs) karena 90_Setup.gs perlu ini di Fase 0
-// untuk membuat user admin pertama, sebelum 12_Auth.gs (Fase 1) ditulis.
-// Logika login/lockout/session TETAP di 12_Auth.gs (Fase 1) — file ini hanya
-// menyediakan primitif hash yang dipakai bersama.
-const PIN_HASH_ITERATIONS = 10000;
+// File ini memegang KONSTANTA dan generator salt. Fungsi hashPin_ sendiri
+// ada di 12_Auth.gs (Fase 1) — satu implementasi saja.
+//
+// Iterasi per versi. JANGAN ubah angka versi lama: hash yang sudah tersimpan
+// hanya bisa diverifikasi ulang dengan iterasi yang dipakai saat dibuat.
+// Untuk mengubah biaya hashing: tambah versi BARU, naikkan PIN_HASH_VERSION.
+// v1 = 10000 -> terukur 5.6-6.4 detik di GAS, melanggar CLAUDE.md §3.7.
+// v2 = 5000  -> sesuai instruksi 03-rbac.md §4 saat hash > 3 detik.
+// v1 = 10000 -> 5,6-6,4 detik. v2 = 5000 -> 2,7 detik. v3 = 1000 -> ~0,54 detik.
+//
+// Kenapa 1000 dianggap cukup: PIN 6 digit hanya 1 juta kombinasi. Kalau sheet
+// USERS *dan* PIN_PEPPER sama-sama bocor, iterasi berapapun tidak menolong --
+// GPU menyelesaikan 1e6 x 10000 SHA-256 dalam hitungan detik. Pertahanan yang
+// sebenarnya adalah (a) pepper di Script Properties, terpisah dari spreadsheet,
+// dan (b) lockout 5x/15 menit untuk serangan online (03-rbac.md §4).
+// Iterasi hanya menyisakan nilai untuk skenario "sheet bocor, pepper aman".
+// JANGAN turunkan di bawah 1000: hematnya < 300ms, tapi lapisan terakhir hilang.
+const PIN_HASH_ITERATIONS_BY_VERSION = { 1: 10000, 2: 5000, 3: 1000 };
+
+/** Versi yang dipakai untuk hash BARU. Hash lama tetap dibaca dengan versinya sendiri. */
+const PIN_HASH_VERSION = 3;
+
+/** Iterasi untuk sebuah PIN_Version. Default v1 kalau kolom kosong (data lama). */
+function pinIterations_(version) {
+  const v = Number(version || 1);
+  const n = PIN_HASH_ITERATIONS_BY_VERSION[v];
+  if (!n) throw new AppError(ERROR_CODES.INTERNAL, 'PIN_Version tidak dikenal: ' + version);
+  return n;
+}
 
 function generateSalt_() {
   // 16 byte turunan UUID (di-hash SHA-256, ambil 16 byte pertama) — cukup acak
@@ -268,16 +297,9 @@ function generateSalt_() {
   return Utilities.base64Encode(raw.slice(0, 16));
 }
 
-function hashPin_(pin, saltB64) {
-  const pepper = scriptProp_('PIN_PEPPER');
-  let acc = Utilities.base64Decode(saltB64).concat(
-    Utilities.newBlob(pin + pepper).getBytes()
-  );
-  for (let i = 0; i < PIN_HASH_ITERATIONS; i++) {
-    acc = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, acc);
-  }
-  return Utilities.base64Encode(acc);
-}
+// hashPin_ dipindah ke 12_Auth.gs (Fase 1) supaya hanya ada SATU implementasi.
+// Jangan definisikan ulang di sini — duplikat function declaration tidak error,
+// tapi diam-diam menimpa dan bikin verifikasi PIN gagal tanpa jejak.
 
 /** Constant-time compare untuk string base64 sepanjang sama. */
 function constantTimeEquals_(a, b) {
@@ -290,4 +312,43 @@ function constantTimeEquals_(a, b) {
 // ── Util waktu ────────────────────────────────────────────────────────────
 function nowIso_() {
   return Utilities.formatDate(new Date(), 'Asia/Jakarta', "yyyy-MM-dd'T'HH:mm:ssXXX");
+}
+
+/* ===================== SLA CONTEXT (Fase 3) ===================== */
+// Ditambahkan setelah blok terakhir 00_Config.gs.
+// Engine tidak boleh baca sheet, jadi pemuatnya diletakkan di sini.
+
+var HOLIDAY_CACHE_KEY_ = 'holidays_v1';
+var HOLIDAY_CACHE_TTL_ = 21600;   // 6 jam, docs/01-schema.md Konvensi
+
+var Holidays_ = {
+  /** @return {Object} map { '2026-08-17': true } untuk baris Active = TRUE */
+  map: function () {
+    var cache = CacheService.getScriptCache();
+    var hit = cache.get(HOLIDAY_CACHE_KEY_);
+    if (hit) return JSON.parse(hit);
+
+    // KODE MATI sejak Fase 3: Sla_ (31_SlaJob.gs) punya pembaca hari libur
+    // sendiri. Blok Holidays_/slaContext_ ini tidak dipanggil siapa pun —
+    // dibiarkan hanya untuk runSlaTests(). Helper yang benar adalah TC.
+    var rows = TC.readAll(SHEETS.HOLIDAY_CALENDAR);
+    var out = {};
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (String(r.Active).toUpperCase() !== 'TRUE') continue;
+      var key = String(r.Date || '').trim().substring(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(key)) out[key] = true;
+    }
+    cache.put(HOLIDAY_CACHE_KEY_, JSON.stringify(out), HOLIDAY_CACHE_TTL_);
+    return out;
+  },
+
+  invalidate: function () {
+    CacheService.getScriptCache().remove(HOLIDAY_CACHE_KEY_);
+  }
+};
+
+/** Satu-satunya jalan resmi mendapatkan argumen SLA engine. */
+function slaContext_() {
+  return { holidaySet: Holidays_.map(), cfg: slaCfg_(Config_.all()) };
 }

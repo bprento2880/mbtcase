@@ -100,6 +100,11 @@ const HOLIDAY_SEED = [
   ['2027-01-01', 'Tahun Baru Masehi', 'National', 'TRUE']
 ];
 
+/**
+ * Sakelar pengaman setupAll(). Biarkan `false` selamanya kecuali memang
+ * sengaja mereset database dari nol. Kembalikan ke `false` setelah dipakai.
+ */
+const SETUP_FORCE_WIPE = false;
 // ── 1. ENTRY POINT: setupAll() ──────────────────────────────────────────────
 function setupAll() {
   Logger.log('=== MB T-CASE setupAll() mulai ===');
@@ -112,12 +117,13 @@ function setupAll() {
   seedVehicleModels_();
   const admin = createFirstAdmin_();
   installTriggers_();
-
+  enforcePlainTextFormat();   // wajib SETELAH semua sheet & seed dibuat
   Config_.invalidate();
-
   Logger.log('=== setupAll() SELESAI ===');
-  Logger.log('Admin pertama: ' + admin.email + ' / PIN sementara: ' + admin.tempPin);
-  Logger.log('PIN ini WAJIB diganti saat login pertama (Must_Change_PIN = TRUE).');
+  Logger.log('Admin pertama: ' + admin.email);
+  // PIN sementara TIDAK ditulis ke log (Stackdriver retensinya panjang).
+  // Ambil dari return value yang tampil di editor GAS setelah eksekusi.
+  Logger.log('PIN sementara ada di return value. WAJIB diganti saat login pertama.');
   return {
     sheetsCreated: SHEET_ORDER.length,
     adminEmail: admin.email,
@@ -129,11 +135,20 @@ function setupAll() {
 function createAllSheets_() {
   const ss = getSpreadsheet_();
 
-  SHEET_ORDER.forEach(function (sheetName) {
+   SHEET_ORDER.forEach(function (sheetName) {
     let sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
     } else {
+      // PENGAMAN: sheet.clear() menghapus SELURUH data. Sheet yang sudah berisi
+      // baris data tidak boleh disentuh kecuali operator sengaja memaksa.
+      // Insiden 1 Sep 2026: setupAll() ter-Run tidak sengaja, 53 case hilang.
+      if (sheet.getLastRow() > 1 && !SETUP_FORCE_WIPE) {
+        throw new AppError(ERROR_CODES.CONFLICT,
+          'BATAL: sheet "' + sheetName + '" berisi ' + (sheet.getLastRow() - 1) +
+          ' baris data. setupAll() akan menghapusnya. Kalau memang disengaja, ' +
+          'set SETUP_FORCE_WIPE = true di 90_Setup.gs, jalankan, lalu kembalikan ke false.');
+      }
       sheet.clear();
     }
 
@@ -259,9 +274,9 @@ function createFirstAdmin_() {
       '',                   // Dealer_Name
       email,                 // Email — kredensial login
       '',                   // Phone_WA
-      pinHash,               // PIN_Hash
-      salt,                  // PIN_Salt
-      1,                      // PIN_Version
+      pinHash,                // PIN_Hash
+      salt,                   // PIN_Salt
+      PIN_HASH_VERSION,       // PIN_Version - ikut versi aktif, jangan hardcode
       'ACTIVE',               // Status
       'TRUE',                 // Must_Change_PIN
       0,                        // Failed_Attempts
@@ -314,7 +329,7 @@ function isValidPin_(pin) {
 }
 
 // ── 9. Trigger ────────────────────────────────────────────────────────────────
-const TRIGGER_HANDLERS = ['slaJob_', 'notifyProcessQueue_', 'dashboardRebuildAll_', 'dailyDigest_'];
+const TRIGGER_HANDLERS = ['slaJob_', 'notifyProcessQueue_', 'dashboardRebuildAll_', 'dailyDigest_', 'attachHousekeeping_'];
 
 function installTriggers_() {
   // Idempoten: hapus dulu trigger lama dengan handler yang sama, supaya
@@ -329,8 +344,10 @@ function installTriggers_() {
   ScriptApp.newTrigger('notifyProcessQueue_').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('dashboardRebuildAll_').timeBased().everyMinutes(30).create();
   ScriptApp.newTrigger('dailyDigest_').timeBased().atHour(8).nearMinute(15).everyDays(1).create();
+  // Fase 4 — buang file yatim hasil initUpload yang tidak pernah di-complete.
+  ScriptApp.newTrigger('attachHousekeeping_').timeBased().atHour(1).everyDays(1).create();
 
-  Logger.log('4 trigger terpasang: slaJob_ (30mnt), notifyProcessQueue_ (5mnt), dashboardRebuildAll_ (30mnt), dailyDigest_ (08:15).');
+  Logger.log('5 trigger terpasang: slaJob_ (30mnt), notifyProcessQueue_ (5mnt), dashboardRebuildAll_ (30mnt), dailyDigest_ (08:15), attachHousekeeping_ (01:00).');
 }
 
 // Stub — badan asli ditulis di fase masing-masing. Ada di sini SEKARANG supaya
@@ -473,4 +490,46 @@ function generateFakeVin_() {
   let vin = 'WDD'; // prefix umum Mercedes-Benz
   for (let i = 0; i < 14; i++) vin += chars.charAt(Math.floor(Math.random() * chars.length));
   return vin;
+}
+
+/**
+ * Paksa SELURUH kolom timestamp jadi Plain Text di semua sheet.
+ * Idempoten. Jalankan setelah setupAll() dan kapan pun checkPlainText() FAIL.
+ *
+ * Alasan keberadaannya: appendRow() mewarisi format kolom. Kalau satu kolom
+ * timestamp bertipe numerik/otomatis, Sheets bisa mem-parse string ISO jadi
+ * objek Date. Akibatnya TC.parseIso() menerima Date, bukan string, dan
+ * validasi sesi gagal diam-diam (01-schema.md, Konvensi).
+ */
+function enforcePlainTextFormat() {
+  const ss = SpreadsheetApp.openById(scriptProp_('SHEET_ID'));
+  let fixed = 0;
+
+  Object.keys(TIMESTAMP_COLUMNS).forEach(function (sheetName) {
+    const sh = ss.getSheetByName(sheetName);
+    if (!sh) { console.log('SKIP  ' + sheetName + ' (sheet belum ada)'); return; }
+    const maxRows = sh.getMaxRows();
+
+    TIMESTAMP_COLUMNS[sheetName].forEach(function (colName) {
+      const c = colIndex_(sheetName, colName) + 1;
+      // Selalu set ulang tanpa cek dulu. getNumberFormat() pada rentang
+      // multi-baris hanya mengembalikan format sel PERTAMA, jadi pengecekan
+      // "sudah @?" melewatkan baris bawah yang formatnya berbeda.
+      sh.getRange(2, c, maxRows - 1, 1).setNumberFormat('@');
+      fixed++;
+    });
+    console.log('OK    ' + sheetName + ' (' + TIMESTAMP_COLUMNS[sheetName].length + ' kolom)');
+  });
+
+  SpreadsheetApp.flush();
+  console.log(fixed === 0 ? 'Semua kolom timestamp sudah Plain Text.'
+                          : fixed + ' kolom diperbaiki. Jalankan checkPlainText() untuk verifikasi.');
+}
+
+/** Jalankan setelah mengedit sheet master langsung dari spreadsheet. */
+function clearMasterCache() {
+  ['CONFIG', 'DEALERS', 'VEHICLE_MODELS', 'HOLIDAY_CALENDAR', 'EVIDENCE_RULES']
+    .forEach(function (n) { TC.invalidate(n); });
+  if (typeof Holidays_ !== 'undefined') Holidays_.invalidate();
+  console.log('Cache master dibuang.');
 }

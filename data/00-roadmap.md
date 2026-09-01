@@ -12,40 +12,81 @@ File ini dipakai untuk tracking status implementasi MB T-CASE secara bertahap.
 
 ## 📌 Phase Overview & Status
 
-- [ ] **Fase 0 — Environment & Foundation Setup**
+- [X] **Fase 0 — Environment & Foundation Setup**
   clasp setup, `appsscript.json`, route worker `/tcase/*`, `90_Setup.gs` membuat
   seluruh sheet (20, lihat `01-schema.md` §2A) + seed data.
   Referensi: `00-getting-started.md`, `01-schema.md`, `CLAUDE.md` §2–§3.
   **Selesai kalau:** buka URL custom domain (`https://afs-digitalsolution.web.id/tcase/`)
   memunculkan halaman login.
 
-- [ ] **Fase 1 — Authentication & RBAC Engine**
+- [x] **Fase 1 — Authentication & RBAC Engine**
   PIN hash (`hashPin_`), session token (JWT-like HMAC), lockout, guard `requirePerm_`
   dan `assertCanAccessCase_`.
   Referensi: `03-rbac.md`.
   **Selesai kalau:** dealer A login lalu coba akses case dealer B lewat payload →
   ditolak backend (`FORBIDDEN`, tercatat di `AUDIT_LOG`).
+REVISI (Fase 1): worker afs-digitalsolution bukan reverse proxy melainkan iframe
+wrapper (renderAppFrame()), sama seperti 4 app lain di portal. SPA berjalan di dalam
+iframe pada origin *.googleusercontent.com dan memanggil /exec langsung — URL-nya
+disuntik server ke window.__MBTCASE_EXEC_URL__ (lihat ui/Index.html, ui/js_core.html).
+POST ke afs-digitalsolution.web.id/tcase/ mengembalikan HTML shell, bukan JSON.
+CLAUDE.md §2 dan §3.8 yang menyebut "reverse proxy" dan "redirect: 'follow'" perlu
+dikoreksi dengan cara yang sama — pola proxy itu tidak pernah ada di worker.
 
-- [ ] **Fase 2 — Case CRUD, Penomoran & State Machine**
-  CRUD case, penomoran `CN-0001` dst via `LockService`, transisi status legal,
-  tulis `CASE_EVENTS` di setiap mutasi.
+- [x] **Fase 2 — Case CRUD, Penomoran & State Machine**
+  CRUD case, penomoran via `LockService`, transisi status legal,
+  tulis `CASE_EVENTS` di setiap mutasi. Semua di `20_CaseService.gs`
+  (namespace `Case_`), akses sheet hanya lewat `TC`.
   Referensi: `04-state-machine.md`, `01-schema.md` §4, §9.
-  **Selesai kalau:** bikin 3 case bersamaan → `CN-0001..0003`, tidak ada duplikat.
+  **Selesai kalau:** bikin 3 case bersamaan → nomor berurutan dan unik,
+  `CASE_COUNTER` naik persis 3.
 
-- [ ] **Fase 3 — SLA Engine**
+  > **REVISI (Fase 2) — acceptance:**
+  > ```
+  > KODE LAMA:
+  > Selesai kalau: bikin 3 case bersamaan → CN-0001..0003, tidak ada duplikat.
+  >
+  > KODE BARU:
+  > Selesai kalau: bikin 3 case bersamaan → nomor berurutan dan unik,
+  > CASE_COUNTER naik persis 3.
+  > ```
+  > Alasan: nomor literal `CN-0001..0003` tidak bisa dipakai sebagai kriteria.
+  > `CASE_COUNTER` naik terus dan tidak pernah reset (`01-schema.md` §19), jadi
+  > nomor yang terpakai pengujian hangus permanen. Uji konkurensi sungguhan
+  > memakai trigger terpisah: `seedConcurrentCaseTest()` lalu
+  > `checkConcurrentCaseNo()` di `99_Tests.gs` — `runCaseTests()` hanya
+  > sekuensial dan tidak pernah menyentuh jalur rebutan `ScriptLock`.
+  > Hasil verifikasi 01 Sep 2026: `runCaseTests()` 17/17 PASS,
+  > `checkConcurrentCaseNo()` → CN-0057/0058/0059 unik, counter +3,
+  > 5 uji HTTP ke `/exec` sesuai (`case.list` ok, `case.bogus` NOT_FOUND,
+  > `case.get` NOT_FOUND, `case.setPriority` FORBIDDEN, token rusak
+  > UNAUTHENTICATED).
+
+  **Belum tercakup, dibawa ke fase berikutnya:**
+  - Kolom deadline masih `''` sampai `30_SlaEngine.gs` ada (Fase 3).
+    Akibatnya override closure oleh `IIDI_Tech_Mgr` belum bisa dijalankan.
+  - Filter `slaStatus[]` di `case.list` belum aktif (Fase 3).
+  - `Quality_Score` berplafon 90 — 10 poin evidence coverage butuh
+    `EVIDENCE_RULES` (Fase 7).
+  - Scope `IIDI_Area_Mgr` (`ctx.user.areas`) belum teruji: `DEALERS.Area_Manager_User_ID`
+    masih kosong.
+  - `seedDemoData()` menghasilkan data tidak konsisten dengan spec (owner kosong,
+    semua deadline terisi, `Created_By_User_ID` berisi user IIDI, quality score acak).
+    Perbaiki di Fase 8 sebelum uji performa 500 case.
+
+- [X] **Fase 3 — SLA Engine**
   `30_SlaEngine.gs` pure function (jam kerja, deadline, status SLA) + unit test.
   Referensi: `05-sla-engine.md`.
   **Selesai kalau:** semua test case di `05-sla-engine.md` §7 lulus (`runSlaTests()`).
 
-- [ ] **Fase 4 — Evidence Upload**
-  Upload ke Drive: `attach.upload` (inline, ≤5 MB) dan `attach.initUpload` /
-  `attach.completeUpload` (resumable, file besar). Folder `[Case_No]_[VIN]` per case,
-  akses selalu lewat proxy GAS (folder Drive tidak public).
-  Referensi: `01-schema.md` §7–§8, `02-api-contract.md` §"Attachment".
-  **Selesai kalau:** upload 3 file (campuran foto & video) berhasil, folder terbentuk
-  sekali, sheet cuma menyimpan File ID — tidak ada file "yatim" di Drive.
+- [x] **Fase 4 — Evidence Upload**
+  Backend lulus dari editor GAS: attach.upload (INLINE), attach.list,
+  attach.download (chunk base64), attach.delete, registry CASE_FOLDERS,
+  Quality_Score recalc, migrateFase4() + trigger attachHousekeeping_ (01:00).
+  Belum diverifikasi: jalur RESUMABLE (initUpload → PUT browser → completeUpload)
+  dan housekeeping file yatim — keduanya butuh UI upload, diuji di fase frontend.
 
-- [ ] **Fase 5 — Thread & Additional Data Request**
+- [x] **Fase 5 — Thread & Additional Data Request**
   Diskusi teknis (`CASE_THREAD`), alur `request.create` / `request.fulfill`.
   Referensi: `01-schema.md` §6, §11, `02-api-contract.md` §"Thread"/"Additional data request".
   **Selesai kalau:** round-trip dealer ↔ IIDI lengkap dengan deadline.

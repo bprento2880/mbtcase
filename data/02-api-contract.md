@@ -15,7 +15,7 @@ tambahkan ke file ini dulu.
 Satu endpoint, satu bentuk request.
 
 ```
-POST https://afs-digitalsolution.web.id/tcase/
+POST <URL /exec deployment aktif>
 Content-Type: text/plain;charset=utf-8
 
 { "action": "case.list", "token": "<session token>", "payload": { ... } }
@@ -121,9 +121,33 @@ Backend tetap memaksa scope role di atas filter apapun.
 | Action | Payload | Data |
 |---|---|---|
 | `thread.list` | `{ caseNo, since }` | `{ items }` |
-| `thread.post` | `{ caseNo, message, parentId, messageType, visibility }` | `{ item }` |
+| `thread.post` | `{ caseNo, message, parentId, messageType, visibility, suggestedPriority }` | `{ item }` |
 
 `visibility: "IIDI_Only"` ditolak kalau role pemanggil bukan IIDI_*.
+
+`messageType`: `Comment` / `Question` / `Answer` / `Request_Data` / `Decision`.
+Nilai `System` **ditolak** — baris System hanya ditulis backend saat status berubah.
+
+Balasan atas baris `IIDI_Only` otomatis ikut `IIDI_Only`, apapun yang dikirim frontend.
+
+> **REVISI (Fase 5):**
+> ```
+> KODE LAMA:
+> | thread.post | { caseNo, message, parentId, messageType, visibility } | { item } |
+>
+> KODE BARU:
+> | thread.post | { caseNo, message, parentId, messageType, visibility, suggestedPriority } | { item } |
+> ```
+> Alasan: `01-schema.md` §6 dan §9 mewajibkan `IIDI_Tech_Mgr` yang mengusulkan
+> priority menulis event `Priority_Suggested` + baris thread `Decision`, tapi
+> payload lama tidak punya field apapun untuk itu — backend tidak bisa
+> membedakan `Decision` biasa dari usulan priority.
+>
+> `suggestedPriority` opsional, isinya `Normal` / `Urgent` / `Critical`. Kalau
+> terisi: butuh perm `case.suggestPriority` (hanya `IIDI_Tech_Mgr`),
+> `messageType` dipaksa `Decision`, dan backend menulis `Priority_Suggested`
+> ke `CASE_EVENTS`. Field `Priority` di case **tidak pernah** ikut berubah —
+> itu tetap hanya lewat `case.setPriority` oleh dealer.
 
 ### Attachment
 
@@ -176,6 +200,23 @@ yang boleh menghapus. Hapus = soft delete + trash file di Drive.
 | `request.fulfill` | `{ requestId, note, attachmentIds[] }` | `{ request, case }` |
 
 `request.create` otomatis: status → `Waiting Dealer Reply`,
+> **REVISI (Fase 5):** `case.transition` dengan `toStatus: "Waiting Dealer Reply"`
+> sekarang **ditolak** dengan `VALIDATION`. Satu-satunya pintu ke status itu
+> adalah `request.create`. Alasan: `04-state-machine.md` §2 mengizinkan transisi
+> langsung, tapi hasilnya case berstatus `Waiting Dealer Reply` tanpa baris
+> `DATA_REQUESTS` — dealer melihat "bola di saya" tanpa tahu apa yang diminta.
+>
+> `items[]` dinormalkan backend jadi `[{ label, evidenceType }]`. String polos
+> tetap diterima dan dibungkus jadi `{ label }`. `evidenceType` opsional, memakai
+> enum `CASE_ATTACHMENTS.Evidence_Type`. Maks 20 item per permintaan.
+>
+> `request.fulfill` hanya boleh dipanggil oleh pembuat case (`Created_By_User_ID`)
+> atau `Dealer_SM` dealer tersebut. `attachmentIds[]` diverifikasi milik case yang
+> sama; lampiran yang belum terikat baris thread manapun ditautkan ke baris jawaban
+> dealer lewat `Thread_ID` (tidak ada kolom `Request_ID` di `CASE_ATTACHMENTS`).
+>
+> Hanya boleh ada satu `DATA_REQUESTS` berstatus `OPEN` per case. Status `PARTIAL`
+> dan `CANCELLED` belum dipakai sampai ada action yang membutuhkannya.
 `Current_Waiting_Reason` → `Additional_Data`, set `Dealer_Response_Deadline`.
 
 ### Escalation

@@ -22,8 +22,9 @@
       body: JSON.stringify({ action: action, token: (window.Store ? Store.token : ''), payload: payload })
     });
     const out = await res.json();
-    if (!out.ok) {
-      if (out.error.code === 'UNAUTHENTICATED' && window.Store) Store.logout();
+     if (!out.ok) {
+      // clearSession, BUKAN logout() -- logout() memanggil api() lagi dan bisa rekursif.
+      if (out.error.code === 'UNAUTHENTICATED' && window.Store) Store.clearSession();
       throw out.error;
     }
     return out.data;
@@ -34,16 +35,35 @@
    * Fase 1+ menambah: login(), logout(), router SPA, dst — cukup tambah properti
    * dan method ke object yang dikembalikan di sini, jangan bikin store baru.
    */
+  /**
+   * Store global Alpine.
+   * view: 'login' | 'changePin' | 'home'  -- satu-satunya penentu layar aktif.
+   * Fase 2+ menambah view baru (list case, detail, dst) ke enum ini.
+   */
   function appStore() {
     return {
       token: sessionStorage.getItem('mbtcase_token') || '',
       user: null,
-      ping: { status: 'checking' }, // 'checking' | 'ok' | 'error'
+      view: 'login',
+      booting: true,
+      ping: { status: 'checking' },
       loginForm: { email: '', pin: '', loading: false, error: '' },
+      pinForm: { oldPin: '', newPin: '', confirmPin: '', loading: false, error: '' },
 
-      init() {
-        window.Store = this; // supaya api() bisa baca token tanpa Alpine context
-        this.checkPing();
+      async init() {
+        window.Store = this;      // supaya api() bisa baca token tanpa Alpine context
+        await this.checkPing();
+        // Pulihkan sesi kalau token masih ada di sessionStorage (mis. setelah refresh).
+        if (this.token) {
+          try {
+            const data = await api('auth.me', {});
+            this.user = data.user;
+            this.view = data.user.mustChangePin ? 'changePin' : 'home';
+          } catch (e) {
+            this.clearSession();   // token kadaluarsa/dicabut
+          }
+        }
+        this.booting = false;
       },
 
       async checkPing() {
@@ -59,13 +79,17 @@
         this.loginForm.error = '';
         this.loginForm.loading = true;
         try {
-          // NOTE: auth.login baru diimplementasikan penuh di Fase 1
-          // (docs/03-rbac.md, docs/00-roadmap.md). Sampai saat itu, action ini
-          // akan mengembalikan error NOT_FOUND — itu diharapkan, bukan bug.
-          const data = await api('auth.login', { email: this.loginForm.email, pin: this.loginForm.pin });
+          const data = await api('auth.login', {
+            email: this.loginForm.email.trim(),
+            pin: this.loginForm.pin
+          });
           this.token = data.token;
           this.user = data.user;
           sessionStorage.setItem('mbtcase_token', data.token);
+          this.loginForm.pin = '';
+          // Wajib ganti PIN sebelum aksi apapun (03-rbac.md §4). Backend juga
+          // menegakkan ini lewat Guard_.assertPinChanged -- ini cuma UI-nya.
+          this.view = data.mustChangePin ? 'changePin' : 'home';
         } catch (err) {
           this.loginForm.error = (err && err.message) ? err.message : 'Login gagal. Coba lagi.';
         } finally {
@@ -73,9 +97,59 @@
         }
       },
 
-      logout() {
+      /** Validasi sama persis dengan validatePinFormat_ di 12_Auth.gs. */
+      validatePinLocal(pin) {
+        if (!/^\d{6}$/.test(pin)) return 'PIN harus 6 digit angka.';
+        if (pin === '000000') return 'PIN terlalu mudah ditebak.';
+        if (/^(\d)\1{5}$/.test(pin)) return 'PIN tidak boleh semua digit sama.';
+        if ('01234567890'.indexOf(pin) !== -1 || '09876543210'.indexOf(pin) !== -1) {
+          return 'PIN tidak boleh berurutan.';
+        }
+        return '';
+      },
+
+      async submitChangePin() {
+        this.pinForm.error = '';
+        const local = this.validatePinLocal(this.pinForm.newPin);
+        if (local) { this.pinForm.error = local; return; }
+        if (this.pinForm.newPin !== this.pinForm.confirmPin) {
+          this.pinForm.error = 'Konfirmasi PIN tidak sama.'; return;
+        }
+        if (this.pinForm.newPin === this.pinForm.oldPin) {
+          this.pinForm.error = 'PIN baru harus berbeda dari PIN lama.'; return;
+        }
+
+        this.pinForm.loading = true;
+        try {
+          await api('auth.changePin', {
+            oldPin: this.pinForm.oldPin,
+            newPin: this.pinForm.newPin
+          });
+          // changePin mencabut sesi LAIN, sesi ini tetap hidup (11_Session.gs
+          // revokeAllForUser dengan exceptSid). Token tidak perlu diganti.
+          this.pinForm = { oldPin: '', newPin: '', confirmPin: '', loading: false, error: '' };
+          if (this.user) this.user.mustChangePin = false;
+          this.view = 'home';
+        } catch (err) {
+          this.pinForm.error = (err && err.message) ? err.message : 'Gagal mengganti PIN.';
+        } finally {
+          this.pinForm.loading = false;
+        }
+      },
+
+      async logout() {
+        try {
+          await api('auth.logout', {});   // cabut sesi di server, jangan cuma lokal
+        } catch (e) { /* token mungkin sudah tidak valid -- lanjut bersihkan */ }
+        this.clearSession();
+      },
+
+      clearSession() {
         this.token = '';
         this.user = null;
+        this.view = 'login';
+        this.loginForm = { email: '', pin: '', loading: false, error: '' };
+        this.pinForm = { oldPin: '', newPin: '', confirmPin: '', loading: false, error: '' };
         sessionStorage.removeItem('mbtcase_token');
       }
     };

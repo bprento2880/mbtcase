@@ -1,0 +1,64 @@
+<!-- Layar wajib ganti PIN. Muncul saat Must_Change_PIN = TRUE (03-rbac.md §4).
+     Backend menegakkan hal yang sama lewat Guard_.assertPinChanged -- layar ini
+     bukan pengaman, cuma jalan keluarnya untuk user. -->
+<div class="min-h-screen flex items-center justify-center px-4 py-10" x-show="!booting && view === 'changePin'" x-cloak>
+  <div class="w-full max-w-[360px]">
+
+    <div class="text-center mb-6">
+      <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3" style="background-color: var(--accent);">
+        <i class="fa-solid fa-key text-white text-lg"></i>
+      </div>
+      <h1 class="text-lg font-semibold">Ganti PIN</h1>
+      <p class="text-xs text-slate-500 mt-1">
+        PIN sementara wajib diganti sebelum Anda bisa memakai sistem.
+      </p>
+    </div>
+
+    <form @submit.prevent="submitChangePin()" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+
+      <div>
+        <label for="cp-old" class="block text-xs font-medium text-slate-600 mb-1">PIN sekarang</label>
+        <input id="cp-old" type="password" inputmode="numeric" pattern="\d{6}" maxlength="6"
+               x-model="pinForm.oldPin" required autocomplete="current-password"
+               class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm tracking-[0.3em] focus:outline-none focus:ring-2"
+               style="--tw-ring-color: var(--accent);"
+               placeholder="••••••">
+      </div>
+
+      <div>
+        <label for="cp-new" class="block text-xs font-medium text-slate-600 mb-1">PIN baru</label>
+        <input id="cp-new" type="password" inputmode="numeric" pattern="\d{6}" maxlength="6"
+               x-model="pinForm.newPin" required autocomplete="new-password"
+               class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm tracking-[0.3em] focus:outline-none focus:ring-2"
+               style="--tw-ring-color: var(--accent);"
+               placeholder="••••••">
+        <p class="text-[11px] text-slate-400 mt-1">
+          6 digit angka. Tidak boleh semua digit sama atau berurutan.
+        </p>
+      </div>
+
+      <div>
+        <label for="cp-confirm" class="block text-xs font-medium text-slate-600 mb-1">Ulangi PIN baru</label>
+        <input id="cp-confirm" type="password" inputmode="numeric" pattern="\d{6}" maxlength="6"
+               x-model="pinForm.confirmPin" required autocomplete="new-password"
+               class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm tracking-[0.3em] focus:outline-none focus:ring-2"
+               style="--tw-ring-color: var(--accent);"
+               placeholder="••••••">
+      </div>
+
+      <p class="text-xs text-red-600" x-show="pinForm.error" x-text="pinForm.error" x-cloak></p>
+
+      <button type="submit" :disabled="pinForm.loading"
+              class="btn-primary w-full rounded-lg py-2.5 text-sm font-medium transition">
+        <span x-show="!pinForm.loading">Simpan PIN baru</span>
+        <span x-show="pinForm.loading" x-cloak><i class="fa-solid fa-spinner fa-spin mr-1"></i> Menyimpan…</span>
+      </button>
+
+    </form>
+
+    <button type="button" @click="logout()"
+            class="w-full text-center text-[11px] text-slate-400 mt-4 hover:text-slate-600">
+      Keluar
+    </button>
+  </div>
+</div>

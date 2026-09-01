@@ -19,8 +19,11 @@
     </div>
 
     <?!= include('ui/partials_login') ?>
+    <?!= include('ui/partials_changepin') ?>
+    <?!= include('ui/partials_home') ?>
 
-    <!-- Fase 1+: router SPA menggantikan blok login di atas berdasarkan Store.token -->
+    <!-- Layar aktif ditentukan Store.view ('login' | 'changePin' | 'home').
+         Fase 2+ menambah view baru, jangan pakai token/flag terpisah. -->
 
   </div>
 

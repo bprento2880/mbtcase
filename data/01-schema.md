@@ -245,6 +245,9 @@ Diskusi teknis. Ini pengganti WhatsApp-nya.
 | Edited_At | timestamp | |
 | Deleted | boolean | Soft delete, jangan hapus baris |
 
+`Author_Name` **tidak** disimpan. Backend meresolusinya dari `USERS` saat read
+dan menyertakannya di response `thread.list` / `case.get`.
+
 Baris `System` ditulis otomatis saat status berubah, supaya timeline terbaca utuh.
 
 Usulan priority dari `IIDI_Tech_Mgr` (RBAC §2: "usul saja") ditulis sebagai baris
@@ -371,7 +374,10 @@ Setiap mutasi case menulis satu baris. Tidak ada pengecualian.
 | Fulfilled_At | timestamp |
 | Fulfilled_By | string |
 | Response_Note | text |
-
+`Request_ID` berformat `DR-XXXXXXXX` (8 karakter dari UUID), bukan nomor berurutan.
+Nomor ini tidak pernah ditampilkan ke user — `Case_No` tetap satu-satunya nomor
+yang dibaca orang — jadi counter berurutan hanya menambah satu LockService per
+permintaan tanpa manfaat. Polanya sama dengan `EV-`, `AL-`, dan `NT-`.
 ---
 
 ## 12. `MBAG_ESCALATIONS`
@@ -527,6 +533,8 @@ Sheet key-value generik. Kolom: `Key`, `Value`, `Description`, `Updated_At`.
 | Key | Nilai default | Keterangan |
 |---|---|---|
 | CASE_COUNTER | 0 | Angka terakhir yang dipakai untuk Case_No. Naik terus, tidak pernah turun |
+| ATTACH_COUNTER | 0 | Angka terakhir Attachment_ID (`AT-000001`). Naik terus, tidak pernah turun |
+| THREAD_COUNTER | 0 | Angka terakhir Thread_ID (`TH-000001`). Naik terus, tidak pernah turun |
 | SLA_DEALER_SELF_DIAG_DAYS | 3 | hari kerja |
 | SLA_IIDI_RESPONSE_DAYS | 1 | |
 | SLA_DEALER_RESPONSE_DAYS | 2 | |

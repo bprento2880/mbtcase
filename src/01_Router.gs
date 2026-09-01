@@ -15,10 +15,35 @@
 const PUBLIC_ACTIONS = new Set(['auth.login', 'sys.ping']);
 
 const ROUTES = {
-  'sys.ping': sysPing_
-  // 'auth.login': Auth_.login,        // didaftarkan di 12_Auth.gs, Fase 1
-  // 'case.create': CaseService_.create, // didaftarkan di 20_CaseService.gs, Fase 2
-  // ...dst per fase, lihat docs/00-roadmap.md
+  'sys.ping':       sysPing_,
+  // ── Fase 1 ────────────────────────────────────────────────
+  'auth.login':     function (ctx, payload) { return Auth_.login(ctx, payload); },
+  'auth.logout':    function (ctx, payload) { return Auth_.logout(ctx, payload, ctx._token); },
+  'auth.me':        function (ctx, payload) { return Auth_.me(ctx); },
+  'auth.changePin': function (ctx, payload) { return Auth_.changePin(ctx, payload); },
+  // ── Fase 2 ────────────────────────────────────────────────
+  'case.create':      function (ctx, payload) { return Case_.create(ctx, payload); },
+  'case.get':         function (ctx, payload) { return Case_.get(ctx, payload); },
+  'case.list':        function (ctx, payload) { return Case_.list(ctx, payload); },
+  'case.update':      function (ctx, payload) { return Case_.update(ctx, payload); },
+  'case.transition':  function (ctx, payload) { return Case_.transition(ctx, payload); },
+  'case.assign':      function (ctx, payload) { return Case_.assign(ctx, payload); },
+  'case.setPriority': function (ctx, payload) { return Case_.setPriority(ctx, payload); },
+  // ── Fase 5 ────────────────────────────────────────────────
+  'thread.list':      function (ctx, payload) { return Thread_.list(ctx, payload); },
+  'thread.post':      function (ctx, payload) { return Thread_.post(ctx, payload); },
+  'request.create':   function (ctx, payload) { return Request_.create(ctx, payload); },
+  'request.fulfill':  function (ctx, payload) { return Request_.fulfill(ctx, payload); },
+  // ── Fase 4 ────────────────────────────────────────────────
+  // WAJIB pakai wrapper, BUKAN referensi langsung (Attach_.upload). ROUTES
+  // dievaluasi saat load, dan 01_Router.gs di-load sebelum 23_AttachService.gs
+  // — referensi langsung akan membaca Attach_ yang masih undefined.
+  'attach.upload':         function (ctx, payload) { return Attach_.upload(ctx, payload); },
+  'attach.initUpload':     function (ctx, payload) { return Attach_.initUpload(ctx, payload); },
+  'attach.completeUpload': function (ctx, payload) { return Attach_.completeUpload(ctx, payload); },
+  'attach.list':           function (ctx, payload) { return Attach_.list(ctx, payload); },
+  'attach.download':       function (ctx, payload) { return Attach_.download(ctx, payload); },
+  'attach.delete':         function (ctx, payload) { return Attach_.del(ctx, payload); }
 };
 
 function doGet(e) {
@@ -52,14 +77,22 @@ function doPost(e) {
     const ctx = PUBLIC_ACTIONS.has(req.action)
       ? { user: null }
       : Session_.validate(req.token);
+    ctx._token = req.token;
+    if (ctx.user) Guard_.assertPinChanged(ctx, req.action);   // Fase 1
 
     const data = handler(ctx, req.payload || {});
-    return jsonOutput_({ ok: true, data: data, meta: { serverTime: nowIso_() } });
+    return jsonOutput_({ ok: true, data: data, meta: { serverTime: TC.nowIso() } });
 
   } catch (err) {
-    const appErr = (err instanceof AppError) ? err : new AppError(ERROR_CODES.INTERNAL, 'Terjadi kesalahan sistem.');
-    if (appErr.code === ERROR_CODES.INTERNAL) console.error(err.stack || err);
-    if (typeof Audit_ !== 'undefined') Audit_.log(req.action, appErr.code); // aktif mulai Fase 1
+    const appErr = (err instanceof AppError)
+      ? err
+      : new AppError(ERROR_CODES.INTERNAL, 'Terjadi kesalahan sistem.');
+    // Error tak terduga masuk Stackdriver, BUKAN AUDIT_LOG.
+    // AUDIT_LOG hanya untuk event keamanan (01-schema.md §10) — sudah
+    // ditulis di dalam Auth_/Guard_ (LOGIN_FAILED, ACCESS_DENIED, dst).
+    if (appErr.code === ERROR_CODES.INTERNAL) {
+      console.error('[' + (req.action || '?') + '] ' + (err.stack || err));
+    }
     return jsonOutput_({
       ok: false,
       error: { code: appErr.code, message: appErr.message, fields: appErr.fields }
@@ -89,12 +122,13 @@ function include(filename) {
 
 // ── Handler bawaan Fase 0 ────────────────────────────────────────────────
 function sysPing_(ctx, payload) {
+  const cfg = TC.config();
   return {
-    version: 'fase-0',
-    serverTime: nowIso_(),
+    version: APP_VERSION,
+    serverTime: TC.nowIso(),
     features: {
-      gemini: Config_.get('FEATURE_GEMINI', 'FALSE') === 'TRUE',
-      wa: Config_.get('FEATURE_WA', 'FALSE') === 'TRUE'
+      gemini: cfg.FEATURE_GEMINI === 'TRUE',
+      wa: cfg.FEATURE_WA === 'TRUE'
     }
   };
 }

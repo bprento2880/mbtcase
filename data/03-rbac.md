@@ -27,6 +27,7 @@
 | Ambil case (assign diri) | ⛔ | ⛔ | ⛔ | ✅ | ✅ | ⛔ | ⛔ |
 | Assign ke orang lain | ⛔ | ⛔ | ⛔ | ⛔ | ✅ | ⛔ | ⛔ |
 | Request additional data | ⛔ | ⛔ | ⛔ | ✅ | ✅ | ⛔ | ⛔ |
+| Penuhi data request | 🔸 case sendiri | 🔸 case sendiri | ✅ dealer-nya | ⛔ | ⛔ | ⛔ | ⛔ |
 | Balas thread | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Thread `IIDI_Only` | ⛔ | ⛔ | ⛔ | ✅ | ✅ | ✅ | ✅ |
 | Upload lampiran | ✅ | ✅ | ✅ | ✅ | ✅ | ⛔ | ⛔ |
@@ -42,7 +43,12 @@
 | Kelola user | ⛔ | ⛔ | ⛔ | ⛔ | ✅ | ⛔ | ⛔ |
 | Lihat audit log | ⛔ | ⛔ | ⛔ | ⛔ | ✅ | ⛔ | ✅ |
 | Export data | ⛔ | ⛔ | 🔸 dealer-nya | ✅ | ✅ | 🔸 area-nya | ✅ |
-
+> **REVISI (Fase 5):** baris "Penuhi data request" ditambahkan. Sebelumnya matrix
+> ini punya "Request additional data" (sisi IIDI) tapi tidak punya sisi dealernya,
+> jadi `request.fulfill` tidak punya perm key. Key di `PERMISSIONS`:
+> `request.fulfill`, aktif untuk `CDT`, `Senior_Tech`, dan `Dealer_SM`.
+> Syarat 🔸 ("case sendiri") ditegakkan di `Request_.fulfill`, bukan di matrix:
+> selain `Dealer_SM`, hanya `Created_By_User_ID` yang boleh memenuhi permintaan.
 ## 3. Penegakan di backend
 
 Dua guard wajib. Tidak boleh ada handler case yang melewatinya.
@@ -63,7 +69,8 @@ function assertCanAccessCase_(ctx, caseRow) {
   if (role.indexOf('IIDI_') === 0) {
     if (role === 'IIDI_Area_Mgr') {
       const dealer = Dealers_.get(caseRow.Dealer_ID);
-      if (dealer.Area !== ctx.user.area) denyCase_(ctx, caseRow);
+      // ctx.user.areas = array, diturunkan dari DEALERS.Area_Manager_User_ID
+      if (ctx.user.areas.indexOf(dealer.Area) === -1) denyCase_(ctx, caseRow);
     }
     return;
   }
@@ -103,6 +110,13 @@ function hashPin_(pin, saltB64) {
 - Bandingkan dengan constant-time compare, bukan `===` langsung.
 - 10.000 iterasi memakan ~0,5–1,5 detik di GAS. Ini wajar dan hanya terjadi saat login.
   Kalau ternyata > 3 detik, turunkan ke 5.000 dan catat di `PIN_Version`.
+
+REVISI (Fase 1): iterasi diturunkan dari 10.000 ke 5.000, dicatat sebagai PIN_Version = 2.
+Alasan: 10.000 iterasi terukur 5,6–6,4 detik di GAS (jauh di atas perkiraan 0,5–1,5 detik),
+membuat auth.login mendekati batas 8 detik CLAUDE.md §3.7. Dengan 5.000 iterasi, login
+end-to-end terukur 6.474 ms. Iterasi disimpan per versi di PIN_HASH_ITERATIONS_BY_VERSION
+(00_Config.gs), sehingga hash v1 lama tetap terverifikasi. auth.login melakukan rehash
+transparan ke versi aktif setelah PIN cocok — user tidak perlu ganti PIN.
 
 ### Aturan PIN
 - 6 digit angka.

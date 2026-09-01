@@ -1,4 +1,6 @@
-<div class="min-h-screen flex items-center justify-center px-4 py-10" x-show="!token" x-cloak>
+<!-- Penentu layar aktif adalah `view`, bukan `token`. `!booting` mencegah layar
+     login berkedip sesaat saat sesi lama sedang dipulihkan lewat auth.me. -->
+<div class="min-h-screen flex items-center justify-center px-4 py-10" x-show="!booting && view === 'login'" x-cloak>
   <div class="w-full max-w-[360px]">
 
     <div class="text-center mb-6">
