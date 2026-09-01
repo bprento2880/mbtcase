@@ -113,8 +113,9 @@ SCHEMA[SHEETS.EVIDENCE_RULES] = [
 ];
 SCHEMA[SHEETS.NOTIFICATIONS_QUEUE] = [
   'Notif_ID', 'Case_No', 'Event_Type', 'Recipient_User_ID', 'Channel', 'To_Address', 'Subject',
-  'Body', 'Status', 'Attempts', 'Created_At', 'Sent_At', 'Error'
-];
+  'Body', 'Status', 'Attempts', 'Created_At', 'Sent_At', 'Error',
+  'Next_Attempt_At'   // K4 — jadwal retry 5/15/60 menit. Sengaja di UJUNG, bukan
+];    
 SCHEMA[SHEETS.AI_ADVISORY_LOG] = [
   'Advisory_ID', 'Case_No', 'Trigger', 'Source', 'Model', 'Input_Hash', 'Response_JSON',
   'Latency_Ms', 'Error', 'Created_At', 'Acknowledged_By'
@@ -152,7 +153,7 @@ TIMESTAMP_COLUMNS[SHEETS.AUDIT_LOG] = ['Timestamp'];
 TIMESTAMP_COLUMNS[SHEETS.DATA_REQUESTS] = ['Requested_At', 'Due_At', 'Fulfilled_At'];
 TIMESTAMP_COLUMNS[SHEETS.MBAG_ESCALATIONS] = ['Escalated_At', 'Response_At', 'Closed_At'];
 TIMESTAMP_COLUMNS[SHEETS.HOLIDAY_CALENDAR] = ['Date'];
-TIMESTAMP_COLUMNS[SHEETS.NOTIFICATIONS_QUEUE] = ['Created_At', 'Sent_At'];
+TIMESTAMP_COLUMNS[SHEETS.NOTIFICATIONS_QUEUE] = ['Created_At', 'Sent_At', 'Next_Attempt_At'];
 TIMESTAMP_COLUMNS[SHEETS.AI_ADVISORY_LOG] = ['Created_At'];
 TIMESTAMP_COLUMNS[SHEETS.KB_ARTICLES] = ['Created_At'];
 TIMESTAMP_COLUMNS[SHEETS.DASHBOARD_SNAPSHOT] = ['Generated_At'];
@@ -201,7 +202,7 @@ function scriptPropOptional_(key, fallback) {
 }
 
 /** Versi aplikasi. Dinaikkan tiap fase; dikembalikan oleh sys.ping. */
-const APP_VERSION = 'fase-5';
+const APP_VERSION = 'fase-6';
 
 // ── CONFIG sheet reader (cache 6 jam, key-value) ─────────────────────────
 const Config_ = {
@@ -254,8 +255,10 @@ const Config_ = {
   ['FEATURE_WA', 'FALSE', 'Aktifkan saat provider WA siap.'],
   ['WA_PROVIDER', '', 'FONNTE | WABLAS | META | CUSTOM. Kosong = belum aktif.'],
   ['GEMINI_MODEL', '', 'Diisi saat setup, lihat docs/07-ai-advisory.md.'],
-  ['EMAIL_DAILY_QUOTA', '1500', 'Kuota akun Workspace pengirim. Dihitung per penerima.'],
-  ['EMAIL_SENT_TODAY', '0', 'Counter berjalan, direset job harian.'],
+  ['EMAIL_DAILY_QUOTA', '1500', 'Batas LUNAK per hari. Pagar sebenarnya = MailApp.getRemainingDailyQuota().'],
+  ['EMAIL_SENT_TODAY', '0', 'Counter berjalan. Direset malas saat EMAIL_SENT_DATE beda hari.'],
+  ['EMAIL_SENT_DATE', '', 'Tanggal counter di atas (yyyy-MM-dd). K6 — tidak perlu trigger tengah malam.'],
+  ['APP_BASE_URL', 'https://afs-digitalsolution.web.id/tcase/', 'Basis tautan case di email. Jangan hardcode di kode.'],
   ['SLA_JOB_CURSOR', '0', 'Penanda posisi batch job SLA (maks 300 case/eksekusi).']
 ];
 

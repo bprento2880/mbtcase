@@ -104,6 +104,45 @@ var TC = (function () {
     invalidate(name);
   }
 
+  /**
+   * Append BANYAK objek sekaligus dalam SATU setValues.
+   * Notify_.enqueue menulis satu baris per penerima; "case masuk ke IIDI"
+   * bisa 8 penerima. Lewat append() itu 8 appendRow (~2-3 detik) di dalam
+   * request user, melanggar CLAUDE.md §3.7.
+   *
+   * Berbeda dari append(): setValues menulis ke nomor baris yang dihitung
+   * dari getLastRow(), jadi dua eksekusi bersamaan bisa saling menimpa.
+   * appendRow() tidak punya masalah itu. Karena itu HANYA fungsi ini yang
+   * mengambil lock sendiri. Jangan panggil dari dalam TC.withLock lain.
+   */
+  function appendMany(name, objs) {
+    if (!objs || !objs.length) return;
+    if (objs.length === 1) return append(name, objs[0]);
+
+    const head = headers_(name);
+    const rows = objs.map(function (o) {
+      return head.map(function (h) {
+        return (o[h] === undefined || o[h] === null) ? '' : String(o[h]);
+      });
+    });
+    const tsCols = (typeof TIMESTAMP_COLUMNS !== 'undefined') ? TIMESTAMP_COLUMNS[name] : null;
+
+    withLock(function () {
+      const sh = sheet_(name);
+      const start = sh.getLastRow() + 1;
+      // Format '@' DULU, baru setValues (01-schema.md, Konvensi).
+      if (tsCols && tsCols.length) {
+        tsCols.forEach(function (colName) {
+          const c = head.indexOf(colName);
+          if (c !== -1) sh.getRange(start, c + 1, rows.length, 1).setNumberFormat('@');
+        });
+      }
+      sh.getRange(start, 1, rows.length, head.length).setValues(rows);
+      SpreadsheetApp.flush();
+    });
+    invalidate(name);
+  }
+
   /** Update sebagian kolom pada satu baris fisik. */
   /**
    * Update sebagian kolom pada satu baris fisik.
@@ -173,9 +212,9 @@ var TC = (function () {
   function flush() { SpreadsheetApp.flush(); }
 
   return { S: S, readAll: readAll, find: find, filter: filter, append: append,
-           update: update, invalidate: invalidate, config: config, cfgNum: cfgNum,
-           nowIso: nowIso, isoOf: isoOf, parseIso: parseIso, withLock: withLock,
-           flush: flush, prop: prop_ };
+           appendMany: appendMany, update: update, invalidate: invalidate,
+           config: config, cfgNum: cfgNum, nowIso: nowIso, isoOf: isoOf,
+           parseIso: parseIso, withLock: withLock, flush: flush, prop: prop_ };
 })();
 
 /** Audit trail keamanan — 01-schema.md §10. Signature tunggal. */

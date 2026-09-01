@@ -37,7 +37,8 @@ const PERMISSIONS = {
     'attach.delete': true, 'escalation.create': true, 'escalation.update': true,
     'closure.request': true, 'closure.override': true, 'case.reopen': true,
     'dashboard.dealer': true, 'dashboard.distributor': true, 'kb.create': true,
-    'user.manage': true, 'audit.view': true, 'data.export': true
+    'user.manage': true, 'audit.view': true, 'data.export': true,
+    'notif.admin': true                          // Fase 6, 08-notifications.md §5
   },
   IIDI_Area_Mgr: {
     'case.viewOwnDealer': true, 'case.viewOtherDealer': true, 'thread.post': true,

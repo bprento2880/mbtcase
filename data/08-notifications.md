@@ -53,7 +53,23 @@ kalau ada yang salah.
 - Jangan kirim ke pelaku aksinya sendiri.
 - Setiap user punya preferensi `Notif_Level`: `All` / `Important_Only` / `Daily_Digest`.
   Simpan sebagai kolom tambahan di `USERS`.
+**Keputusan implementasi Fase 6:**
 
+- Pemetaan `Notif_Level`. `Important_Only` menerima: case Urgent/Critical masuk,
+  additional data request, SLA overdue, MBAG menjawab, eskalasi ke MBAG, dan
+  ringkasan harian. Sisanya hanya untuk `All`.
+- **`ACCOUNT_LOCKED` lolos semua filter**, termasuk `Daily_Digest`. Ini email
+  keamanan — kalau ada yang menebak PIN akun seseorang, dia harus tahu hari itu
+  juga, bukan besok pagi. Penyimpangan sadar dari aturan preferensi di atas.
+- "MBAG menjawab" dikirim ke sisi dealer + `IIDI_Tech_Mgr`, bukan ke "IIDI pemilik
+  case" seperti tabel di atas. Alasannya: MBAG tidak pernah login ke sistem —
+  jawabannya masuk lewat teknisi IIDI yang mengembalikan status, sehingga pemilik
+  case adalah pelaku aksinya sendiri dan sudah disaring keluar. Yang benar-benar
+  menunggu kabar itu dealer.
+- Notifikasi ke `IIDI_Area_Mgr` diturunkan dari `DEALERS.Area_Manager_User_ID`.
+  Selama kolom itu masih kosong, penerima tersebut dilewati diam-diam dan dicatat
+  di log — satu area manager yang belum terdaftar tidak boleh menggagalkan
+  notifikasi ke penerima lain.
 ## 3. Template email
 
 Plain HTML sederhana. Jangan pakai gambar. Banyak yang dibaca di HP dengan koneksi bengkel.
@@ -80,7 +96,7 @@ Yang diminta:
 --
 MB T-CASE · Technical Case Escalation & Management System
 Anda menerima email ini karena terlibat dalam case CN-0027.
-Ubah preferensi notifikasi di menu Pengaturan.
+Preferensi notifikasi diatur oleh administrator sistem.
 ```
 
 Aturan penulisan:

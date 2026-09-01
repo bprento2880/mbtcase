@@ -2,7 +2,8 @@
 
 Sumber kebenaran struktur data. Kalau kode dan file ini beda, **file ini yang benar**.
 
-> **Revisi Fase 0:** ada 6 perubahan dari draf awal, semua ditandai dengan blok
+> **REVISI (Fase 6):** tambah kolom `Next_Attempt_At`.
+| Next_Attempt_At | timestamp | Kosong = boleh dikirim sekarang. Diisi saat percobaan gagal |
 > `> **REVISI (Fase 0)**` di bagian terkait. Ringkasan:
 > 1. `USERS` — tambah kolom `Notif_Level`, tambah aturan `Email` harus unik.
 > 2. Sheet baru `VEHICLE_MODELS` (§2A) — sebelumnya direferensikan (`seed/models.csv`,
@@ -350,7 +351,7 @@ Setiap mutasi case menulis satu baris. Tidak ada pengecualian.
 | Log_ID | string (PK) |
 | Timestamp | timestamp |
 | User_ID | string |
-| Action | string: `LOGIN_SUCCESS` / `LOGIN_FAILED` / `ACCOUNT_LOCKED` / `PIN_CHANGED` / `ACCESS_DENIED` / `SESSION_EXPIRED` / `EXPORT` |
+| Action | string: `LOGIN_SUCCESS` / `LOGIN_FAILED` / `ACCOUNT_LOCKED` / `PIN_CHANGED` / `ACCESS_DENIED` / `SESSION_EXPIRED` / `EXPORT` / `NOTIF_RETRY` |
 | Target | string |
 | Result | `OK` / `DENIED` / `ERROR` |
 | Detail | string |
@@ -453,6 +454,25 @@ Lihat `docs/08-notifications.md`.
 | Created_At | timestamp |
 | Sent_At | timestamp |
 | Error | string |
+| Next_Attempt_At | timestamp | Kosong = boleh dikirim sekarang. Diisi saat percobaan gagal |
+
+> **REVISI (Fase 6):** tambah kolom `Next_Attempt_At`.
+> ```
+> KODE LAMA:
+> | Sent_At | timestamp |
+> | Error | string |
+> (tidak ada kolom jadwal percobaan ulang)
+>
+> KODE BARU:
+> | Error | string |
+> | Next_Attempt_At | timestamp |
+> ```
+> Alasan: `08-notifications.md` §1 menetapkan retry 5 / 15 / 60 menit, tapi worker
+> berjalan tiap 5 menit dan tidak punya cara tahu kapan sebuah baris boleh dicoba
+> lagi. Tanpa kolom ini ketiga percobaan habis dalam 15 menit — semuanya jatuh di
+> dalam gangguan yang sama. Baris gagal tetap `PENDING` sampai `Attempts = 3`,
+> baru menjadi `FAILED`. Kolom ditaruh di UJUNG, bukan disisipkan sebelum `Error`,
+> supaya migrasi cukup menambah satu kolom di kanan (`migrateFase6()`).
 
 ---
 
@@ -552,10 +572,17 @@ Sheet key-value generik. Kolom: `Key`, `Value`, `Description`, `Updated_At`.
 | FEATURE_WA | FALSE | Aktifkan saat provider WA siap |
 | WA_PROVIDER | (kosong) | `FONNTE` / `WABLAS` / `META` / `CUSTOM`. Kosong = belum aktif |
 | GEMINI_MODEL | (isi saat setup) | Nama model disimpan di sini supaya gampang diganti |
-| EMAIL_DAILY_QUOTA | 1500 | Kuota akun Workspace pengirim. Dihitung per **penerima**, bukan per baris queue |
-| EMAIL_SENT_TODAY | 0 | Counter berjalan, direset job harian |
+| EMAIL_DAILY_QUOTA | 80 | Batas **lunak** per hari. Pagar sebenarnya `MailApp.getRemainingDailyQuota()` |
+| EMAIL_SENT_TODAY | 0 | Counter berjalan. Direset malas saat `EMAIL_SENT_DATE` beda hari |
+| EMAIL_SENT_DATE | (kosong) | Tanggal counter di atas, `yyyy-MM-dd`. Menghindari trigger tengah malam |
+| APP_BASE_URL | https://afs-digitalsolution.web.id/tcase/ | Basis tautan case di email. Jangan hardcode di kode |
 | SLA_JOB_CURSOR | 0 | Penanda posisi batch job SLA (maks 300 case/eksekusi) |
-
+> Alasan: akun pemilik script (`customerservicesmarketing@gmail.com`) adalah akun
+> konsumen, bukan Workspace — `MailApp.getRemainingDailyQuota()` mengembalikan ~100,
+> bukan 1.500. Nilai 80 memberi ruang untuk project lain di akun yang sama. Naikkan
+> ke 1500 setelah deployment dan trigger dipindah ke akun `@inchcape.co.id`; cukup
+> edit sheet, tanpa deploy ulang. `EMAIL_SENT_DATE` menggantikan "job harian" yang
+> tidak pernah ada di daftar trigger.
 Rahasia (API key, pepper, JWT secret) **tidak disimpan di sheet ini**, tapi di Script Properties.
 
 > **REVISI (Fase 0):**

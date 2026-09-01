@@ -350,22 +350,55 @@ function installTriggers_() {
   Logger.log('5 trigger terpasang: slaJob_ (30mnt), notifyProcessQueue_ (5mnt), dashboardRebuildAll_ (30mnt), dailyDigest_ (08:15), attachHousekeeping_ (01:00).');
 }
 
-// Stub — badan asli ditulis di fase masing-masing. Ada di sini SEKARANG supaya
-// trigger yang sudah terpasang tidak gagal ("function not found") sebelum fase
-// itu dikerjakan. PINDAHKAN ke file fase yang sesuai saat fase itu dikerjakan,
-// lalu HAPUS stub ini dari 90_Setup.gs.
-function slaJob_() {
-  // TODO Fase 3 — lihat docs/05-sla-engine.md §8. Pindahkan ke 31_SlaJob.gs.
-}
-function notifyProcessQueue_() {
-  // TODO Fase 6 — lihat docs/08-notifications.md §1. Pindahkan ke 50_Notify.gs.
-}
+// Stub untuk fase yang BELUM ditulis. File ini di-load PALING AKHIR, jadi stub
+// dengan nama yang sama akan MENIMPA implementasi asli di file fase-nya tanpa
+// error apapun. Begitu sebuah fase selesai, stub-nya WAJIB dihapus dari sini.
+//
+// Dihapus di Fase 6: slaJob_ (asli di 31_SlaJob.gs — stub ini membuat trigger
+// SLA jadi no-op sejak Fase 3), notifyProcessQueue_ dan dailyDigest_ (asli di
+// 50_Notify.gs).
 function dashboardRebuildAll_() {
   // TODO Fase 8 — lihat docs/06-dashboard.md §1. Pindahkan ke 60_Dashboard.gs.
 }
-function dailyDigest_() {
-  // TODO Fase 6 — lihat docs/08-notifications.md §6. Pindahkan ke 50_Notify.gs.
-  // Ingat: hari kerja saja — cek isWorkingDay_() begitu 30_SlaEngine.gs ada (Fase 3).
+
+/**
+ * Migrasi Fase 6. Jalankan SEKALI dari editor GAS setelah clasp push.
+ * Idempoten dan tidak menghapus data apapun — setupAll() TIDAK boleh dijalankan
+ * ulang (pengaman SETUP_FORCE_WIPE ada justru untuk itu).
+ */
+function migrateFase6() {
+  const out = { column: 'sudah ada', configAdded: [] };
+
+  // 1. Kolom Next_Attempt_At di NOTIFICATIONS_QUEUE (01-schema.md §15 revisi Fase 6).
+  const sh = getSheet_(SHEETS.NOTIFICATIONS_QUEUE);
+  const head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].map(String);
+  if (head.indexOf('Next_Attempt_At') === -1) {
+    const col = head.length + 1;
+    sh.getRange(1, col).setValue('Next_Attempt_At');
+    sh.getRange(2, col, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+    out.column = 'ditambahkan di kolom ' + col;
+  }
+
+  // 2. Key CONFIG baru. Hanya yang belum ada — nilai existing tidak ditimpa.
+  const cfgSheet = getSheet_(SHEETS.CONFIG);
+  const rows = cfgSheet.getDataRange().getValues();
+  const kIdx = colIndex_(SHEETS.CONFIG, 'Key');
+  const existing = {};
+  for (let i = 1; i < rows.length; i++) existing[String(rows[i][kIdx])] = true;
+
+  const now = nowIso_();
+  DEFAULT_CONFIG.forEach(function (r) {
+    if (existing[r[0]]) return;
+    cfgSheet.appendRow([r[0], r[1], r[2], now]);
+    out.configAdded.push(r[0]);
+  });
+
+  SpreadsheetApp.flush();
+  Config_.invalidate();
+  TC.invalidate(SHEETS.CONFIG);
+  TC.invalidate(SHEETS.NOTIFICATIONS_QUEUE);
+  Logger.log('migrateFase6: ' + JSON.stringify(out));
+  return out;
 }
 
 // ── 10. Data dummy untuk uji dashboard/performa ──────────────────────────────

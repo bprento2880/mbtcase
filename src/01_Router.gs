@@ -43,9 +43,14 @@ const ROUTES = {
   'attach.completeUpload': function (ctx, payload) { return Attach_.completeUpload(ctx, payload); },
   'attach.list':           function (ctx, payload) { return Attach_.list(ctx, payload); },
   'attach.download':       function (ctx, payload) { return Attach_.download(ctx, payload); },
-  'attach.delete':         function (ctx, payload) { return Attach_.del(ctx, payload); }
+  'attach.delete':         function (ctx, payload) { return Attach_.del(ctx, payload); },
+  // ── Fase 6 ────────────────────────────────────────────────
+  // Panel notifikasi (08-notifications.md §5). Hanya IIDI_Tech_Mgr —
+  // penegakannya di requirePerm_(ctx, 'notif.admin') dalam 50_Notify.gs.
+  'notif.queue':  function (ctx, payload) { return Notify_.adminQueue(ctx, payload); },
+  'notif.retry':  function (ctx, payload) { return Notify_.adminRetry(ctx, payload); },
+  'notif.test':   function (ctx, payload) { return Notify_.adminTest(ctx, payload); }
 };
-
 function doGet(e) {
   // Hanya melayani shell SPA. TIDAK ADA data API lewat GET (02-api-contract.md §1).
   const tpl = HtmlService.createTemplateFromFile('ui/Index');

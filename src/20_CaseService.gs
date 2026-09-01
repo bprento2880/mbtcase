@@ -554,7 +554,21 @@ var Case_ = (function () {
 
     hook.call(this, 'Thread_', 'system',
       [caseNo, 'Status diubah menjadi ' + to + ' oleh ' + (ctx.user.fullName || ctx.user.userId) + '.']);
-    hook.call(this, 'Notify_', 'enqueue', ['STATUS_CHANGED', caseNo, to]);
+
+    // FASE 6: argumen ke-3 WAJIB objek, bukan string. `from` dipakai Notify_
+    // untuk membedakan "MBAG menjawab" (Escalated to MBAG -> In Progress) dari
+    // "dealer sudah balas" (Waiting IIDI -> In Progress); `actorUserId` dipakai
+    // untuk TIDAK mengirim email ke orang yang baru menekan tombolnya sendiri
+    // (08-notifications.md §2). Contoh bentuk string di 04-state-machine.md §4
+    // sudah dikoreksi — jangan dikembalikan.
+    hook.call(this, 'Notify_', 'enqueue', ['STATUS_CHANGED', caseNo, {
+      from: res.from,
+      to: to,
+      actorUserId: ctx.user.userId,
+      actorRole: ctx.user.role,
+      waitingReason: res.patch.Current_Waiting_Reason,
+      note: s(p.note)
+    }]);
 
     const fresh = row(caseNo);
     return { 'case': toPublic(fresh), sla: slaOf(fresh) };

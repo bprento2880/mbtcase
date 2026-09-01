@@ -112,7 +112,17 @@ function transition_(ctx, caseNo, toStatus, opts) {
     Cases_.update(caseNo, { Status: toStatus, /* ... */ });
     Events_.write(caseNo, 'Status_Changed', row.Status, toStatus, ctx, opts.note);
     Thread_.system(caseNo, `Status diubah menjadi ${toStatus} oleh ${ctx.user.fullName}.`);
-    Notify_.enqueue('STATUS_CHANGED', caseNo, toStatus);
+    // Argumen ke-3 WAJIB objek (Fase 6). `from` membedakan "MBAG menjawab"
+    // (Escalated to MBAG -> In Progress) dari "dealer sudah balas"
+    // (Waiting IIDI -> In Progress). `actorUserId` mencegah email terkirim ke
+    // orang yang baru menekan tombolnya sendiri (08-notifications.md §2).
+    Notify_.enqueue('STATUS_CHANGED', caseNo, {
+      from: row.Status, to: toStatus,
+      actorUserId: ctx.user.userId, actorRole: ctx.user.role
+    });
+  from: row.Status, to: toStatus,
+  actorUserId: ctx.user.userId, actorRole: ctx.user.role
+});
     return Cases_.get(caseNo);
   } finally {
     lock.releaseLock();
