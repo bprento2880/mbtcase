@@ -1,0 +1,184 @@
+<!--
+  Daftar case. Layar utama sehari-hari.
+
+  Dua bentuk dari satu data:
+    < 768px : kartu bertumpuk, 3 baris info, target sentuh penuh lebar
+    >= 768px: tabel padat 7 kolom
+
+  Bukan tabel yang di-scroll horizontal — CLAUDE.md §8 melarang memaksa tabel
+  9 kolom masuk layar 360px.
+-->
+<main x-show="!booting && view === 'caseList'" x-cloak
+      class="max-w-5xl mx-auto px-4 pt-4 pb-24 md:pb-10">
+
+  <!-- ── Pencarian + filter cepat ──────────────────────────────────────── -->
+  <div class="mb-4">
+    <div class="relative">
+      <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2
+                text-slate-400 text-[13px] pointer-events-none"></i>
+      <input type="search" x-model="search" @input="onSearchInput()"
+             placeholder="Cari nomor case, VIN, model, nopol…"
+             class="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-100/80 border border-transparent
+                    text-[15px] placeholder:text-slate-400
+                    focus:bg-white focus:border-slate-300 focus:outline-none
+                    focus:ring-4 focus:ring-slate-900/5 transition-all">
+    </div>
+
+    <!-- Chip filter. Scroll horizontal DISENGAJA di sini: chip pendek dan
+         jumlahnya tetap, beda dengan tabel yang isinya tak terduga. -->
+    <div class="flex gap-2 mt-3 overflow-x-auto no-scrollbar -mx-4 px-4">
+      <template x-for="f in quickFilters" :key="f.key">
+        <button type="button" @click="setQuick(f.key)"
+                class="shrink-0 h-8 px-3.5 rounded-full text-[13px] font-medium
+                       border transition-colors"
+                :class="quick === f.key
+                  ? 'text-white border-transparent'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'"
+                :style="quick === f.key ? 'background-color: var(--accent)' : ''"
+                x-text="f.label"></button>
+      </template>
+    </div>
+  </div>
+
+  <!-- ── Skeleton ──────────────────────────────────────────────────────── -->
+  <div x-show="cases.loading" class="space-y-2">
+    <template x-for="i in 5" :key="i">
+      <div class="skeleton h-[86px] md:h-12 rounded-xl"></div>
+    </template>
+  </div>
+
+  <!-- ── Error ─────────────────────────────────────────────────────────── -->
+  <div x-show="!cases.loading && cases.error"
+       class="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+    <p class="text-[13px] text-red-800" x-text="cases.error"></p>
+    <button type="button" @click="loadCases()"
+            class="mt-2 text-[13px] font-medium text-red-900 underline underline-offset-2">
+      Coba lagi
+    </button>
+  </div>
+
+  <!-- ── Kosong ────────────────────────────────────────────────────────── -->
+  <!-- Layar kosong menjelaskan langkah berikutnya, bukan sekadar "Tidak ada
+       data" (CLAUDE.md §8). -->
+  <div x-show="!cases.loading && !cases.error && cases.items.length === 0"
+       class="text-center py-16 px-6">
+    <div class="w-12 h-12 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+      <i class="fa-regular fa-folder-open text-slate-400"></i>
+    </div>
+    <p class="text-[15px] font-medium text-slate-900"
+       x-text="search ? 'Tidak ada case yang cocok' : (quick === 'mine' ? 'Tidak ada yang menunggu Anda' : 'Belum ada case')"></p>
+    <p class="text-[13px] text-slate-500 mt-1.5 max-w-xs mx-auto"
+       x-text="search
+         ? 'Coba kata kunci lain, atau ubah filter di atas.'
+         : (quick === 'mine'
+            ? 'Semua case yang jadi tanggung jawab Anda sudah tertangani.'
+            : 'Case pertama dibuat dari tombol Case baru di kanan atas.')"></p>
+    <button type="button" @click="go('#/cases/new')"
+            x-show="can('case.create') && !search && quick !== 'mine'"
+            class="btn-primary mt-5 h-10 px-4 rounded-xl text-[14px] font-medium
+                   inline-flex items-center gap-2 transition-colors">
+      <i class="fa-solid fa-plus text-[11px]"></i>Buat case pertama
+    </button>
+  </div>
+
+  <!-- ══════════════ MOBILE: kartu ══════════════ -->
+  <div x-show="!cases.loading && cases.items.length" class="md:hidden space-y-2">
+    <template x-for="c in cases.items" :key="c.Case_No">
+      <button type="button" @click="go('#/case/' + c.Case_No)"
+              class="w-full text-left bg-white rounded-xl border border-slate-200
+                     px-4 py-3 active:bg-slate-50 transition-colors">
+
+        <div class="flex items-center gap-2 mb-1.5">
+          <span class="font-mono text-[13px] font-semibold text-slate-900"
+                x-text="c.Case_No"></span>
+          <span x-show="c.Priority !== 'Normal'"
+                class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase
+                       tracking-wide ring-1 ring-inset"
+                :class="priorityClass(c.Priority)" x-text="c.Priority"></span>
+          <span class="ml-auto px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0"
+                :class="slaClass(c.SLA_Status)" x-text="slaLabel(c.SLA_Status)"></span>
+        </div>
+
+        <p class="text-[14px] text-slate-900 leading-snug"
+           x-text="truncate(c.Complaint_Desc, 90)"></p>
+
+        <div class="flex items-center gap-1.5 mt-2 text-[12px] text-slate-500">
+          <span class="font-medium text-slate-700" x-text="c.Model"></span>
+          <span aria-hidden="true">·</span>
+          <span x-text="statusLabel(c.Status)"></span>
+          <span class="ml-auto shrink-0" x-text="ago(c.Last_Activity_At)"></span>
+        </div>
+      </button>
+    </template>
+  </div>
+
+  <!-- ══════════════ DESKTOP: tabel ══════════════ -->
+  <div x-show="!cases.loading && cases.items.length"
+       class="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-[13px]">
+      <thead>
+        <tr class="border-b border-slate-200 text-left text-slate-500">
+          <th class="th">Case</th>
+          <th class="th">Model</th>
+          <th class="th w-[38%]">Keluhan</th>
+          <th class="th">Status</th>
+          <th class="th">SLA</th>
+          <th class="th text-right">Skor</th>
+          <th class="th text-right">Aktivitas</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="c in cases.items" :key="c.Case_No">
+          <tr @click="go('#/case/' + c.Case_No)"
+              class="border-b border-slate-100 last:border-0 hover:bg-slate-50
+                     cursor-pointer transition-colors">
+            <td class="td whitespace-nowrap">
+              <div class="flex items-center gap-1.5">
+                <span class="font-mono font-semibold text-slate-900" x-text="c.Case_No"></span>
+                <span x-show="c.Priority !== 'Normal'"
+                      class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase
+                             ring-1 ring-inset"
+                      :class="priorityClass(c.Priority)" x-text="c.Priority"></span>
+              </div>
+            </td>
+            <td class="td text-slate-700" x-text="c.Model"></td>
+            <td class="td text-slate-900" x-text="truncate(c.Complaint_Desc, 120)"></td>
+            <td class="td text-slate-600 whitespace-nowrap" x-text="statusLabel(c.Status)"></td>
+            <td class="td whitespace-nowrap">
+              <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                    :class="slaClass(c.SLA_Status)" x-text="slaLabel(c.SLA_Status)"></span>
+            </td>
+            <td class="td text-right tabular-nums text-slate-600"
+                x-text="c.Quality_Score + '%'"></td>
+            <td class="td text-right text-slate-500 whitespace-nowrap"
+                x-text="ago(c.Last_Activity_At)"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Paginasi ──────────────────────────────────────────────────────── -->
+  <div x-show="!cases.loading && cases.total > cases.pageSize"
+       class="flex items-center justify-between mt-4">
+    <p class="text-[12px] text-slate-500">
+      <span x-text="nf((cases.page - 1) * cases.pageSize + 1)"></span>–<span
+            x-text="nf(Math.min(cases.page * cases.pageSize, cases.total))"></span>
+      dari <span x-text="nf(cases.total)"></span>
+    </p>
+    <div class="flex items-center gap-1">
+      <button type="button" @click="gotoPage(cases.page - 1)" :disabled="cases.page <= 1"
+              class="pager" aria-label="Halaman sebelumnya">
+        <i class="fa-solid fa-chevron-left text-[11px]"></i>
+      </button>
+      <span class="px-2 text-[12px] tabular-nums text-slate-600">
+        <span x-text="cases.page"></span> / <span x-text="totalPages"></span>
+      </span>
+      <button type="button" @click="gotoPage(cases.page + 1)" :disabled="cases.page >= totalPages"
+              class="pager" aria-label="Halaman berikutnya">
+        <i class="fa-solid fa-chevron-right text-[11px]"></i>
+      </button>
+    </div>
+  </div>
+
+</main>

@@ -41,7 +41,10 @@
    * Fase 2+ menambah view baru (list case, detail, dst) ke enum ini.
    */
   function appStore() {
-    return {
+    // pagesModule() di js_pages.html menyumbang state & method semua layar
+    // setelah login. Alpine hanya menerima SATU objek per x-data, jadi
+    // digabung di sini alih-alih bikin store kedua.
+    return Object.assign(pagesModule(), {
       token: sessionStorage.getItem('mbtcase_token') || '',
       user: null,
       view: 'login',
@@ -52,18 +55,25 @@
 
       async init() {
         window.Store = this;      // supaya api() bisa baca token tanpa Alpine context
-        await this.checkPing();
-        // Pulihkan sesi kalau token masih ada di sessionStorage (mis. setelah refresh).
+
+        // sys.ping DIHAPUS dari jalur ini. auth.me yang sukses sudah
+        // membuktikan server hidup; ping terpisah cuma menambah satu
+        // round-trip ~0,8 detik di depan setiap pembukaan aplikasi.
         if (this.token) {
           try {
             const data = await api('auth.me', {});
             this.user = data.user;
-            this.view = data.user.mustChangePin ? 'changePin' : 'home';
+            this.ping.status = 'ok';
+            if (data.user.mustChangePin) this.view = 'changePin';
           } catch (e) {
             this.clearSession();   // token kadaluarsa/dicabut
+            this.checkPing();      // tanpa await: layar login tidak perlu menunggu
           }
+        } else {
+          this.checkPing();
         }
         this.booting = false;
+        if (this.user) await this.initPages();
       },
 
       async checkPing() {
@@ -89,7 +99,8 @@
           this.loginForm.pin = '';
           // Wajib ganti PIN sebelum aksi apapun (03-rbac.md §4). Backend juga
           // menegakkan ini lewat Guard_.assertPinChanged -- ini cuma UI-nya.
-          this.view = data.mustChangePin ? 'changePin' : 'home';
+          this.view = data.mustChangePin ? 'changePin' : 'caseList';
+	if (!data.mustChangePin) await this.initPages();
         } catch (err) {
           this.loginForm.error = (err && err.message) ? err.message : 'Login gagal. Coba lagi.';
         } finally {
@@ -129,7 +140,7 @@
           // revokeAllForUser dengan exceptSid). Token tidak perlu diganti.
           this.pinForm = { oldPin: '', newPin: '', confirmPin: '', loading: false, error: '' };
           if (this.user) this.user.mustChangePin = false;
-          this.view = 'home';
+          this.view = 'caseList';
         } catch (err) {
           this.pinForm.error = (err && err.message) ? err.message : 'Gagal mengganti PIN.';
         } finally {
@@ -151,7 +162,11 @@
         this.loginForm = { email: '', pin: '', loading: false, error: '' };
         this.pinForm = { oldPin: '', newPin: '', confirmPin: '', loading: false, error: '' };
         sessionStorage.removeItem('mbtcase_token');
+        this.master = null;          // master ikut dibuang: scope-nya per-role
+        this.cases.loaded = false;
+        this.detail = { caseNo: '', data: null, loading: false, error: '' };
+        if (location.hash) location.hash = '';
       }
-    };
+    });
   }
 </script>

@@ -1,0 +1,336 @@
+<script>
+  /**
+   * Ronde 3 — form buat case (wizard 4 langkah).
+   *
+   * POLA: file ini mengekspor caseNewModule(), yang di-merge ke dalam
+   * pagesModule() (js_pages.html). Satu store, banyak file.
+   *
+   * PENTING — kenapa isian disimpan DATAR di form.values, bukan bertingkat
+   * per grup (vehicle/complaint/diagnostics):
+   *
+   * Versi pertama memakai form[stepGroup][f.k]. Section input hanya di-x-show,
+   * tidak dilepas dari DOM, jadi binding itu tetap dievaluasi ulang setiap kali
+   * `step` berubah -- termasuk ketika stepGroup sudah tidak menunjuk grup yang
+   * sama dengan field yang masih tertempel. Hasilnya ratusan TypeError, dan
+   * error tak tertangkap di dalam effect Alpine menghentikan antrean render
+   * berikutnya (halaman detail ikut kosong).
+   *
+   * Dengan objek datar, form.values[f.k] SELALU ada -- blankForm() membuat
+   * semua key di muka. Pengelompokan cuma terjadi sekali di payload().
+   * Nama key sengaja identik dengan kolom CASES_MASTER / CASE_DIAGNOSTICS,
+   * jadi error.fields dari backend langsung cocok tanpa tabel pemetaan kedua.
+   */
+
+  /**
+   * Definisi field per langkah. Satu sumber untuk: render input, urutan,
+   * peta field -> langkah, dan pembagian grup saat menyusun payload.
+   *
+   * type: text | number | date | area | enum | model
+   * src : nama array di master.bootstrap (untuk type 'enum')
+   * col : true = ambil lebar penuh
+   */
+  const NEW_FIELDS = {
+    // ── Langkah 1 — kendaraan ────────────────────────────────────────────
+    vehicle: [
+      { k: 'VIN', label: 'VIN', type: 'text', req: true, up: true, max: 17,
+        hint: '17 karakter, tanpa spasi' },
+      { k: 'Model', label: 'Model', type: 'model', req: true },
+      { k: 'Prod_Year', label: 'Tahun produksi', type: 'number' },
+      { k: 'Mileage', label: 'Kilometer', type: 'number', req: true },
+      { k: 'Warranty_Status', label: 'Status garansi', type: 'enum',
+        src: 'warrantyStatuses', req: true },
+      { k: 'Reg_No', label: 'Nomor polisi', type: 'text', up: true },
+      { k: 'Engine_No', label: 'Nomor mesin', type: 'text' },
+      { k: 'Trans_No', label: 'Nomor transmisi', type: 'text' }
+    ],
+    // ── Langkah 2 — keluhan ──────────────────────────────────────────────
+    complaint: [
+      { k: 'Complaint_Desc', label: 'Deskripsi keluhan', type: 'area', req: true, col: true,
+        rows: 4, hint: 'Tulis seperti yang dikeluhkan pelanggan, bukan kesimpulan Anda' },
+      { k: 'Symptom_Category', label: 'Kategori gejala', type: 'enum',
+        src: 'symptomCategories', req: true },
+      { k: 'Vehicle_Status', label: 'Kondisi kendaraan', type: 'enum', src: 'vehicleStatuses' },
+      { k: 'Frequency', label: 'Frekuensi gejala', type: 'enum', src: 'frequencies' },
+      { k: 'Date_Occurred', label: 'Tanggal kejadian', type: 'date' },
+      { k: 'Driving_Condition', label: 'Kondisi saat gejala muncul', type: 'text', col: true,
+        hint: 'Contoh: idle setelah 20 menit jalan, AC menyala' },
+      { k: 'Complaint_No', label: 'Nomor WO/RO', type: 'text' },
+      { k: 'Cust_Name', label: 'Nama pelanggan', type: 'text' },
+      { k: 'Outside_Temp', label: 'Suhu luar', type: 'text' },
+      { k: 'Fuel_Level', label: 'Level bahan bakar', type: 'text' },
+      { k: 'Driving_Style', label: 'Gaya berkendara', type: 'text' },
+      { k: 'Road_Condition', label: 'Kondisi jalan', type: 'text' }
+    ],
+    // ── Langkah 3 — diagnostik ───────────────────────────────────────────
+    diagnostics: [
+      { k: 'DTC_Codes', label: 'Kode DTC', type: 'text', up: true, col: true,
+        hint: 'Pisahkan dengan koma, contoh P0087,B1234' },
+      { k: 'Control_Unit', label: 'Control unit', type: 'text' },
+      { k: 'Xentry_Version', label: 'Versi Xentry', type: 'text' },
+      { k: 'Initial_Diag', label: 'Diagnosis awal', type: 'area', rows: 3, col: true,
+        min: 50, hint: 'Minimal 50 karakter untuk menambah skor kelengkapan' },
+      { k: 'Dealer_Analysis', label: 'Analisis dealer', type: 'area', rows: 4, col: true,
+        min: 100, hint: 'Minimal 100 karakter. Ini bagian yang paling sering ditanya balik IIDI' },
+      { k: 'Suspected_Root_Cause', label: 'Dugaan akar masalah', type: 'area', rows: 2, col: true },
+      { k: 'Workshop_Findings', label: 'Temuan bengkel', type: 'area', rows: 3, col: true },
+      { k: 'Diagnostic_Path', label: 'Alur diagnosa yang sudah ditempuh', type: 'area', rows: 3, col: true },
+      { k: 'SW_Version_Before', label: 'Versi SW sebelum', type: 'text' },
+      { k: 'SW_Version_After', label: 'Versi SW sesudah', type: 'text' },
+      { k: 'Parts_Replaced', label: 'Part yang sudah diganti', type: 'area', rows: 2, col: true },
+      { k: 'Previous_Repair_History', label: 'Riwayat perbaikan sebelumnya', type: 'area', rows: 2, col: true }
+    ]
+  };
+
+  const NEW_GROUPS = ['vehicle', 'complaint', 'diagnostics'];
+
+  const NEW_STEPS = [
+    { n: 1, group: 'vehicle',     label: 'Kendaraan' },
+    { n: 2, group: 'complaint',   label: 'Keluhan' },
+    { n: 3, group: 'diagnostics', label: 'Diagnostik' },
+    { n: 4, group: '',            label: 'Tinjau' }
+  ];
+
+  /** Kolom -> langkah. Dibangun dari NEW_FIELDS supaya tidak pernah beda. */
+  const FIELD_STEP = (function () {
+    const m = {};
+    NEW_STEPS.forEach(function (st) {
+      (NEW_FIELDS[st.group] || []).forEach(function (f) { m[f.k] = st.n; });
+    });
+    return m;
+  })();
+
+  /** Kategori gejala tidak ada di ENUM_LABELS (js_pages.html). Lengkapi di sini. */
+  const SYMPTOM_LABELS = {
+    Engine: 'Mesin', Transmission: 'Transmisi', Electrical: 'Kelistrikan',
+    Software: 'Software', Chassis: 'Sasis & kaki-kaki', Body: 'Bodi',
+    HVAC: 'AC / HVAC', Infotainment: 'Infotainment', Other: 'Lainnya'
+  };
+
+  /**
+   * Keputusan D3 (07-ai-advisory.md §3). Dialog self-diagnosis bersifat
+   * informatif; tombol kirim TETAP berfungsi. Pilihan dealer dicatat lewat
+   * `note` pada case.transition — event Status_Changed sudah menyimpannya,
+   * jadi tidak perlu action backend baru.
+   */
+  const SELF_DIAG_NOTE = 'Advisory self-diagnosis ditampilkan; dealer memilih lanjut kirim ke IIDI.';
+
+  function blankForm() {
+    const f = { step: 1, busy: false, saving: '', errors: {},
+                priority: 'Normal', values: {} };
+    NEW_GROUPS.forEach(function (g) {
+      NEW_FIELDS[g].forEach(function (x) { f.values[x.k] = ''; });
+    });
+    return f;
+  }
+
+  function caseNewModule() {
+    return {
+      // ── State ────────────────────────────────────────────────────────────
+      form: blankForm(),
+      newSteps: NEW_STEPS,
+      selfDiag: false,
+
+      // ── Turunan ──────────────────────────────────────────────────────────
+
+      /** Hanya untuk memilih daftar field yang dirender. Tidak dipakai untuk
+          mengakses data — itu selalu lewat form.values. */
+      get stepFields() {
+        const st = NEW_STEPS[this.form.step - 1];
+        return (st && NEW_FIELDS[st.group]) ? NEW_FIELDS[st.group] : [];
+      },
+
+      /**
+       * Cermin dari Case_.qualityScore() (20_CaseService.gs §4) untuk komponen
+       * yang bisa dinilai SEBELUM case tersimpan. Lampiran (15+5) dan cakupan
+       * evidence (10) tidak dihitung — belum ada caseNo, jadi belum ada
+       * lampiran. Maksimum dari form ini 70, dan itu disebut apa adanya ke user.
+       */
+      get scoreParts() {
+        const v = this.form.values;
+        const t = function (x) { return String(x == null ? '' : x).trim(); };
+        const dtc = t(v.DTC_Codes).toLowerCase();
+        return [
+          { pts: 20, label: 'Data wajib kendaraan & keluhan lengkap',
+            ok: !!(t(v.VIN) && t(v.Model) && Number(v.Mileage) > 0 && t(v.Complaint_Desc) &&
+                   t(v.Symptom_Category) && t(v.Warranty_Status)) },
+          { pts: 15, label: 'Diagnosis awal minimal 50 karakter',
+            ok: t(v.Initial_Diag).length >= 50 },
+          { pts: 15, label: 'Analisis dealer minimal 100 karakter',
+            ok: t(v.Dealer_Analysis).length >= 100 },
+          { pts: 10, label: 'Dugaan akar masalah terisi',
+            ok: !!t(v.Suspected_Root_Cause) },
+          { pts: 10, label: 'Kode DTC terisi', ok: !!dtc && dtc !== '-' }
+        ];
+      },
+      get score() {
+        return this.scoreParts.reduce(function (a, p) { return a + (p.ok ? p.pts : 0); }, 0);
+      },
+
+      // ── Helper render ────────────────────────────────────────────────────
+
+      optLabel(v) { return SYMPTOM_LABELS[v] || this.enumLabel(v); },
+
+      optionsFor(f) {
+        const m = this.master || {};
+        if (f.type === 'model') {
+          return (m.models || []).map(function (x) { return { v: x.code, l: x.name }; });
+        }
+        const self = this;
+        return (m[f.src] || []).filter(function (x) { return !!x; })
+          .map(function (x) { return { v: x, l: self.optLabel(x) }; });
+      },
+
+      /** Panjang isian, untuk penghitung karakter pada field ber-ambang. */
+      len(k) { return String(this.form.values[k] || '').trim().length; },
+
+      /** Normalisasi saat mengetik: VIN/DTC/nopol selalu huruf besar. */
+      onFieldInput(f) {
+        if (f.up) this.form.values[f.k] = String(this.form.values[f.k] || '').toUpperCase();
+        if (this.form.errors[f.k]) delete this.form.errors[f.k];
+      },
+
+      // ── Validasi ─────────────────────────────────────────────────────────
+
+      /**
+       * Cermin validate() di 20_CaseService.gs §5. Ada di frontend BUKAN untuk
+       * menggantikan backend (backend tetap satu-satunya penegak), tapi supaya
+       * user tidak sampai langkah 4 lalu dilempar balik ke langkah 1.
+       */
+      stepErrors(step) {
+        const e = {}, v = this.form.values;
+        const t = function (x) { return String(x == null ? '' : x).trim(); };
+        if (step === 1) {
+          if (t(v.VIN).length !== 17) e.VIN = 'VIN wajib tepat 17 karakter.';
+          if (!t(v.Model)) e.Model = 'Model wajib dipilih.';
+          if (!(Number(v.Mileage) > 0)) e.Mileage = 'Kilometer wajib diisi berupa angka.';
+          if (!t(v.Warranty_Status)) e.Warranty_Status = 'Status garansi wajib dipilih.';
+        }
+        if (step === 2) {
+          if (!t(v.Complaint_Desc)) e.Complaint_Desc = 'Deskripsi keluhan wajib diisi.';
+          if (!t(v.Symptom_Category)) e.Symptom_Category = 'Kategori gejala wajib dipilih.';
+        }
+        return e;
+      },
+
+      /** Kunci D5: lompat ke langkah yang memuat field bermasalah pertama. */
+      applyErrors(fields) {
+        this.form.errors = fields || {};
+        let first = 99;
+        Object.keys(this.form.errors).forEach(function (k) {
+          const s = FIELD_STEP[k] || 99;
+          if (s < first) first = s;
+        });
+        if (first < 99) this.form.step = first;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+
+      validateAll() {
+        const e = Object.assign({}, this.stepErrors(1), this.stepErrors(2));
+        if (Object.keys(e).length) { this.applyErrors(e); return false; }
+        this.form.errors = {};
+        return true;
+      },
+
+      // ── Navigasi wizard ──────────────────────────────────────────────────
+
+      newCase() { this.form = blankForm(); this.selfDiag = false; this.go('#/cases/new'); },
+
+      nextStep() {
+        const e = this.stepErrors(this.form.step);
+        if (Object.keys(e).length) { this.applyErrors(e); return; }
+        this.form.errors = {};
+        if (this.form.step < 4) this.form.step++;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+      prevStep() {
+        if (this.form.step > 1) this.form.step--;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+      gotoStep(n) {
+        if (n === this.form.step) return;
+        if (n > this.form.step) { this.nextStep(); return; }   // maju tetap lewat validasi
+        this.form.step = n;
+      },
+
+      cancelNew() {
+        this.form = blankForm();
+        this.go('#/cases');
+      },
+
+      // ── Simpan ───────────────────────────────────────────────────────────
+
+      /** Objek datar dipecah kembali per grup, sesuai bentuk case.create. */
+      payload() {
+        const self = this;
+        const out = { priority: this.form.priority };
+        NEW_GROUPS.forEach(function (g) {
+          out[g] = {};
+          NEW_FIELDS[g].forEach(function (f) { out[g][f.k] = self.form.values[f.k]; });
+        });
+        return out;
+      },
+
+      /** Dialog self-diagnosis dulu (D3), baru kirim. Tombol tidak pernah nonaktif. */
+      askSubmit() {
+        if (!this.validateAll()) return;
+        this.selfDiag = true;
+      },
+      confirmSubmit()    { this.selfDiag = false; this.doSave('submit'); },
+      continueSelfDiag() { this.selfDiag = false; this.doSave('draft'); },
+
+      /**
+       * mode 'draft'  : case.create saja, status tetap Created.
+       * mode 'submit' : case.create lalu case.transition ke Open.
+       *
+       * Dipisah dua panggilan karena case.create memang hanya membuat draft
+       * (20_CaseService.gs §7). Kalau transisi gagal, case TIDAK hilang — ia
+       * tetap ada sebagai draft dan user diberi tahu apa adanya.
+       */
+      async doSave(mode) {
+        if (this.form.busy) return;
+        if (!this.validateAll()) return;
+
+        this.form.busy = true;
+        this.form.saving = mode;
+        let caseNo = '';
+        try {
+          const res = await api('case.create', this.payload());
+          caseNo = res.caseNo;
+        } catch (err) {
+          this.form.busy = false; this.form.saving = '';
+          if (err && err.code === 'VALIDATION' && err.fields) {
+            this.applyErrors(err.fields);
+            this.notify('Ada isian yang belum benar.', 'err');
+          } else {
+            this.notify((err && err.message) ? err.message : 'Gagal menyimpan case.', 'err');
+          }
+          return;
+        }
+
+        if (mode === 'submit') {
+          try {
+            await api('case.transition', { caseNo: caseNo, toStatus: 'Open', note: SELF_DIAG_NOTE });
+            this.notify(caseNo + ' terkirim ke IIDI');
+          } catch (err) {
+            this.notify(caseNo + ' tersimpan sebagai draft, tapi gagal dikirim: ' +
+                        ((err && err.message) ? err.message : 'kesalahan sistem'), 'err');
+          }
+        } else {
+          this.notify(caseNo + ' disimpan sebagai draft');
+        }
+
+        this.form = blankForm();
+        this.cases.loaded = false;      // daftar wajib dimuat ulang saat dibuka
+        this.go('#/case/' + caseNo);
+      },
+
+      /** D4: kolom Model menyimpan code (W206); yang tampil ke user nama modelnya. */
+      modelName(code) {
+        if (!code) return '—';
+        const m = ((this.master && this.master.models) || [])
+          .find(function (x) { return x.code === code; });
+        return m ? m.name : code;
+      }
+    };
+  }
+</script>

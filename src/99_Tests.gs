@@ -1040,3 +1040,15 @@ function testFase4() {
   Attach_.del(ctx, { attachmentId: up.attachment.attachmentId });
   Logger.log('DELETE  : sisa ' + Attach_.list(ctx, { caseNo: CASE_NO }).items.length + ' item');
 }
+
+function patchConfigFase7() {
+  const sh = getSheet_(SHEETS.CONFIG);
+  const existing = {};
+  TC.readAll(SHEETS.CONFIG).forEach(function (r) { existing[r.Key] = 1; });
+  DEFAULT_CONFIG.forEach(function (row) {
+    if (existing[row[0]]) return;
+    sh.appendRow([row[0], row[1], row[2], nowIso_()]);
+    console.log('CONFIG += ' + row[0]);
+  });
+  TC.invalidate(SHEETS.CONFIG);
+}

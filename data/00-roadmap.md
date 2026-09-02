@@ -91,7 +91,7 @@ dikoreksi dengan cara yang sama — pola proxy itu tidak pernah ada di worker.
   Referensi: `01-schema.md` §6, §11, `02-api-contract.md` §"Thread"/"Additional data request".
   **Selesai kalau:** round-trip dealer ↔ IIDI lengkap dengan deadline.
 
-- [ ] **Fase 6 — Notifikasi**
+- [x] **Fase 6 — Notifikasi**
   Queue + worker (`50_Notify.gs`), trigger 5 menit, digest harian 08:15, kuota email
   dihitung per **penerima** (Workspace, 1.500/hari), tombol `wa.me` di UI (adapter WA
   penuh masih stub).

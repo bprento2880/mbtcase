@@ -1,18 +1,493 @@
 <script>
   /**
-   * Registry halaman SPA. Kosong di Fase 0 — baru dipakai mulai Fase 1 saat
-   * router SPA (berbasis URL hash, lihat docs/06-dashboard.md §3 "Filter") mulai
-   * dibangun. Pola yang disarankan untuk fase berikutnya:
+   * Registry halaman SPA + state untuk semua layar setelah login.
    *
-   *   const PAGES = {
-   *     login:     { component: 'partials_login' },
-   *     dashboard: { component: 'partials_dashboard' },
-   *     caseList:  { component: 'partials_case_list' },
-   *     caseDetail:{ component: 'partials_case_detail' },
-   *     // ...dst
-   *   };
+   * POLA: file ini mengekspor SATU fungsi, pagesModule(), yang objeknya
+   * di-Object.assign ke dalam appStore() di js_core.html. Alasannya: Alpine
+   * hanya menerima satu objek state per x-data, dan memecah state ke beberapa
+   * store terpisah membuat komunikasi antar layar jadi berbelit. Satu store,
+   * banyak file.
    *
-   * Jangan isi file ini sebelum fase yang membutuhkannya benar-benar dikerjakan
-   * (CLAUDE.md §1 aturan 1 — satu fase per sesi).
+   * Menambah halaman baru = tambah nilai ke VIEWS + satu partial + satu baris
+   * di ROUTE_MAP. Jangan bikin store kedua.
    */
+
+  /** Semua layar yang mungkin aktif. store.view selalu salah satu dari ini. */
+  const VIEWS = ['login', 'changePin', 'caseList', 'caseDetail', 'caseNew', 'account'];
+
+  /** Hash URL -> view. Hash dipakai supaya layar bisa di-bookmark & di-share
+      (docs/06-dashboard.md §3 mensyaratkan filter tersimpan di hash). */
+  const ROUTE_MAP = [
+    { re: /^#\/cases\/new$/,        view: 'caseNew' },
+    { re: /^#\/case\/([A-Z0-9-]+)$/, view: 'caseDetail', param: 'caseNo' },
+    { re: /^#\/akun$/,              view: 'account' },
+    { re: /^#\/cases?$/,            view: 'caseList' }
+  ];
+
+  /**
+   * Semua status kecuali Closed (04-state-machine.md §1).
+   *
+   * Sengaja ditulis di sini, BUKAN diturunkan dari master.bootstrap. Kalau
+   * filter default bergantung pada master, daftar case harus MENUNGGU master
+   * selesai — dua request berurutan, masing-masing ~0,8 detik overhead /exec.
+   * Dengan daftar ini keduanya jalan paralel.
+   *
+   * Konsekuensinya: kalau status baru ditambahkan di 04-state-machine.md,
+   * tambahkan juga di sini.
+   */
+  const ACTIVE_STATUSES = ['Created', 'Open', 'In Progress', 'Waiting Dealer Reply',
+    'Waiting IIDI', 'Escalated to MBAG', 'Request Closure'];
+  /** Filter cepat di daftar case. Label pendek — dibaca di layar 360px. */
+  const QUICK_FILTERS = [
+    { key: 'mine',    label: 'Perlu saya' },
+    { key: 'active',  label: 'Aktif' },
+    { key: 'overdue', label: 'Terlambat' },
+    { key: 'all',     label: 'Semua' }
+  ];
+
+  // =====================================================================
+  /** Tab di halaman detail. Angka lencana dihitung lewat store.tabCount(). */
+  const DETAIL_TABS = [
+    { key: 'summary', label: 'Ringkasan' },
+    { key: 'thread',  label: 'Diskusi' },
+    { key: 'files',   label: 'Lampiran' }
+  ];
+
+  /** Kolom kendaraan+keluhan yang ditampilkan, beserta labelnya. */
+  const VEHICLE_FIELDS = [
+    { k: 'Reg_No',            label: 'Nomor polisi' },
+    { k: 'Engine_No',         label: 'Nomor mesin' },
+    { k: 'Trans_No',          label: 'Nomor transmisi' },
+    { k: 'Warranty_Status',   label: 'Garansi',      enum: true },
+    { k: 'Symptom_Category',  label: 'Kategori' },
+    { k: 'Frequency',         label: 'Frekuensi',    enum: true },
+    { k: 'Vehicle_Status',    label: 'Kondisi',      enum: true },
+    { k: 'Driving_Condition', label: 'Saat terjadi' },
+    { k: 'Date_Occurred',     label: 'Tanggal kejadian' },
+    { k: 'Complaint_No',      label: 'Nomor WO/RO' },
+    { k: 'Dealer_ID',         label: 'Dealer' },
+    { k: 'Created_By_User_ID',label: 'Dibuat oleh' }
+  ];
+
+  const DIAG_FIELDS = [
+    { k: 'DTC_Codes',               label: 'Kode DTC' },
+    { k: 'Control_Unit',            label: 'Control unit' },
+    { k: 'Initial_Diag',            label: 'Diagnosis awal' },
+    { k: 'Dealer_Analysis',         label: 'Analisis dealer' },
+    { k: 'Suspected_Root_Cause',    label: 'Dugaan akar masalah' },
+    { k: 'Workshop_Findings',       label: 'Temuan bengkel' },
+    { k: 'Diagnostic_Path',         label: 'Alur diagnosa' },
+    { k: 'Xentry_Version',          label: 'Versi Xentry' },
+    { k: 'SW_Version_Before',       label: 'Versi SW sebelum' },
+    { k: 'SW_Version_After',        label: 'Versi SW sesudah' },
+    { k: 'Parts_Replaced',          label: 'Part diganti' },
+    { k: 'Previous_Repair_History', label: 'Riwayat perbaikan' }
+  ];
+
+  /** Enum backend -> kalimat Indonesia. Underscore tidak layak tampil ke user. */
+  const ENUM_LABELS = {
+    In_Warranty: 'Dalam garansi', Out_Warranty: 'Di luar garansi',
+    Goodwill: 'Goodwill', Extended: 'Extended warranty',
+    Always: 'Selalu', Intermittent: 'Kadang-kadang', Once: 'Sekali',
+    Under_Condition: 'Pada kondisi tertentu',
+    Drivable: 'Bisa dikendarai', Not_Drivable: 'Tidak bisa dikendarai',
+    In_Workshop: 'Di bengkel',
+    Additional_Data: 'menunggu data tambahan',
+    Dealer_Verification: 'menunggu verifikasi dealer',
+    IIDI_Technical_Review: 'menunggu review teknis IIDI',
+    MBAG_Feedback: 'menunggu jawaban MBAG',
+    Repair_Verification: 'menunggu verifikasi perbaikan',
+    Customer_Confirmation: 'menunggu konfirmasi pelanggan'
+  };
+
+  const FLAG_LABELS = {
+    SAFETY_KEYWORD:   'Keluhan menyinggung sistem keselamatan',
+    LONG_IN_WORKSHOP: 'Kendaraan lama tertahan di bengkel',
+    RECURRING_VIN:    'VIN ini pernah kena case sebelumnya'
+  };
+ /** Placeholder advisory saat data belum tiba. Semua field ada, semua falsy.
+      priorityAdvice WAJIB objek, bukan null: x-show tidak mencegah x-text di
+      dalamnya dievaluasi, jadi adv.priorityAdvice.dealerPriority tetap dibaca. */
+  const ADV_EMPTY = {
+    priorityAdvice: { dealerPriority: '', suggested: 'No_Change', reason: '' },
+    recommendedEvidence: [], missingInformation: [],
+    likelyDirection: '', confidence: '', flags: [],
+    source: '', generatedAt: '', cached: false, _empty: true
+  };
+
+  function pagesModule() {
+    // Modul halaman lain di-merge di sini. Guard typeof supaya file yang
+    // belum ter-include tidak mematikan seluruh store.
+    return Object.assign(typeof caseNewModule === 'function' ? caseNewModule() : {}, {
+      // ── State ────────────────────────────────────────────────────────────
+      master: null,
+      masterError: '',
+      quickFilters: QUICK_FILTERS,
+      quick: 'active',
+
+      cases: {
+        items: [], total: 0, page: 1, pageSize: 20,
+        loading: false, error: '', loaded: false
+      },
+      search: '',
+      _searchTimer: null,
+
+      detail: { caseNo: '', data: null, loading: false, error: '' },
+
+      // =====================================================================
+      detailTab: 'summary',
+      detailTabs: DETAIL_TABS,
+      vehicleFields: VEHICLE_FIELDS,
+      diagFields: DIAG_FIELDS,
+      advisoryOpen: true,
+      advisoryBusy: false,
+      reply: { text: '', internal: false, busy: false },
+
+      // ── Pintasan ke isi detail. Getter, bukan salinan -- kalau disalin,
+      //    perubahan setelah refresh tidak terpantul ke layar. ────────────
+       get c()  { return (this.detail.data && this.detail.data['case']) || {}; },
+      get d()  { return (this.detail.data && this.detail.data.diagnostics) || {}; },
+      get sla(){ return (this.detail.data && this.detail.data.sla) || {}; },
+      // Bentuk kosong, BUKAN null. Selama case.get belum selesai template tetap
+      // membaca adv.* -- null di sini berarti 16 Alpine Expression Error per render.
+      get adv(){ return (this.detail.data && this.detail.data.advisory) || ADV_EMPTY; },
+      get thread()      { return (this.detail.data && this.detail.data.thread) || []; },
+      get attachments() { return (this.detail.data && this.detail.data.attachments) || []; },
+      get openRequests() {
+        const rs = (this.detail.data && this.detail.data.dataRequests) || [];
+        return rs.filter(function (r) { return r.Status === 'OPEN'; });
+      },
+      get hasDiagnostics() {
+        const d = this.d;
+        return DIAG_FIELDS.some(function (f) { return !!(d[f.k] || '').trim(); });
+      },
+
+      // ── Aksi ──────────────────────────────────────────────────────────
+
+      async reloadCase() {
+        const no = this.detail.caseNo;
+        this.detail.caseNo = '';        // paksa openCase mengambil ulang
+        await this.openCase(no);
+      },
+
+      /**
+       * force=true memanggil Gemini dan memakan kuota. Dibatasi backend
+       * 5x per case per hari (03-rbac.md §6); melebihi itu -> RATE_LIMIT,
+       * dan pesan backend yang ditampilkan, bukan pesan buatan frontend.
+       */
+      async refreshAdvisory() {
+        if (this.advisoryBusy) return;
+        this.advisoryBusy = true;
+        try {
+          const a = await api('advisory.get', { caseNo: this.detail.caseNo, force: true });
+          this.detail.data.advisory = a;
+          this.notify(a.source === 'GEMINI' ? 'Saran diperbarui' : 'Saran diperbarui dari aturan');
+        } catch (err) {
+          this.notify((err && err.message) ? err.message : 'Gagal memperbarui saran', 'err');
+        } finally {
+          this.advisoryBusy = false;
+        }
+      },
+
+      /** Mencatat pilihan user atas saran. Tidak mengubah field case apapun. */
+      async ackAdvisory(decision, context) {
+        try {
+          await api('advisory.acknowledge', {
+            caseNo: this.detail.caseNo, decision: decision, context: context
+          });
+          this.notify(decision === 'APPLIED' ? 'Ditandai untuk ditinjau' : 'Saran diabaikan');
+        } catch (err) {
+          this.notify((err && err.message) ? err.message : 'Gagal mencatat pilihan', 'err');
+        }
+      },
+
+      async postReply() {
+        const text = this.reply.text.trim();
+        if (!text || this.reply.busy) return;
+        this.reply.busy = true;
+        try {
+          await api('thread.post', {
+            caseNo: this.detail.caseNo,
+            message: text,
+            messageType: 'Comment',
+            visibility: this.reply.internal ? 'IIDI_Only' : 'All'
+          });
+          this.reply.text = '';
+          this.reply.internal = false;
+          await this.reloadCase();
+          this.notify('Terkirim');
+        } catch (err) {
+          this.notify((err && err.message) ? err.message : 'Gagal mengirim balasan', 'err');
+        } finally {
+          this.reply.busy = false;
+        }
+      },
+
+      // ── Helper tampilan ───────────────────────────────────────────────
+
+      parseItems(json) {
+        try {
+          const a = JSON.parse(json || '[]');
+          return Array.isArray(a) ? a.map(function (x) {
+            return (typeof x === 'string') ? { label: x, evidenceType: '' } : x;
+          }) : [];
+        } catch (e) { return []; }
+      },
+/** Lencana angka per tab. Dipanggil dari template: tabCount(t.key). */
+      tabCount(key) {
+        if (key === 'thread') return this.thread.length;
+        if (key === 'files')  return this.attachments.length;
+        return 0;
+      },
+      enumLabel(v)    { return ENUM_LABELS[v] || v || '—'; },
+      waitingLabel(v) { return ENUM_LABELS[v] || v; },
+      flagLabel(t)    { return FLAG_LABELS[t] || t; },
+      confLabel(c)    { return { low: 'rendah', medium: 'sedang', high: 'tinggi' }[c] || '—'; },
+
+      fieldValue(row, f) {
+        const v = row[f.k];
+        if (!v) return '—';
+        return f.enum ? this.enumLabel(v) : v;
+      },
+
+      /** Menit kerja -> "3 jam kerja" / "1 hari 2 jam kerja". 1 hari = 540 menit. */
+      workMinutes(m) {
+        m = Math.abs(Number(m) || 0);
+        if (m < 60) return m + ' menit kerja';
+        const days = Math.floor(m / 540);
+        const hours = Math.floor((m % 540) / 60);
+        if (!days) return hours + ' jam kerja';
+        return days + ' hari' + (hours ? ' ' + hours + ' jam' : '') + ' kerja';
+      },
+
+      fileSize(b) {
+        b = Number(b) || 0;
+        if (b < 1024) return b + ' B';
+        if (b < 1048576) return Math.round(b / 1024) + ' KB';
+        return (b / 1048576).toFixed(1) + ' MB';
+      },
+
+      fileIcon(mime) {
+        mime = mime || '';
+        if (mime.indexOf('image/') === 0) return 'fa-regular fa-image';
+        if (mime.indexOf('video/') === 0) return 'fa-regular fa-file-video';
+        if (mime.indexOf('pdf') !== -1)   return 'fa-regular fa-file-pdf';
+        return 'fa-regular fa-file';
+      },
+      toast: { show: false, text: '', tone: 'ok' },
+
+      // ── Boot ─────────────────────────────────────────────────────────────
+
+      /** Dipanggil di akhir init() js_core, hanya kalau user sudah login. */
+      async initPages() {
+        window.addEventListener('hashchange', () => this.applyHash());
+        // TIDAK di-await: applyHash() memicu loadCases() yang kini tidak lagi
+        // bergantung pada master, jadi keduanya jalan bersamaan.
+        this.loadMaster();
+        this.applyHash();
+      },
+      async loadMaster() {
+        if (this.master) return;
+        try {
+          this.master = await api('master.bootstrap', {});
+          this.masterError = '';
+        } catch (err) {
+          // Master gagal TIDAK boleh mengunci aplikasi. Daftar case tetap bisa
+          // dibuka; yang hilang cuma isi dropdown filter.
+          this.masterError = (err && err.message) ? err.message : 'Gagal memuat data master.';
+        }
+      },
+
+      can(perm) {
+        return !!(this.master && this.master.permissions && this.master.permissions[perm]);
+      },
+
+      // ── Router ───────────────────────────────────────────────────────────
+
+      applyHash() {
+        if (!this.user) return;
+        if (this.user.mustChangePin) { this.view = 'changePin'; return; }
+
+        const h = location.hash || '#/cases';
+        for (const r of ROUTE_MAP) {
+          const m = h.match(r.re);
+          if (!m) continue;
+          if (r.view === 'caseDetail') {
+            this.openCase(m[1]);
+          } else if (r.view === 'caseList') {
+            this.view = 'caseList';
+            if (!this.cases.loaded) this.loadCases();
+          } else {
+            this.view = r.view;
+          }
+          return;
+        }
+        this.go('#/cases');
+      },
+
+      go(hash) {
+        if (location.hash === hash) this.applyHash();
+        else location.hash = hash;
+      },
+
+      // ── Daftar case ──────────────────────────────────────────────────────
+
+      filtersPayload() {
+        const f = { q: this.search.trim() };
+        if (this.quick === 'mine')    f.assignedToMe = true;
+        if (this.quick === 'active')  f.status = ACTIVE_STATUSES;
+        if (this.quick === 'overdue') f.slaStatus = ['OVERDUE'];
+        return f;
+      },
+
+      async loadCases(page) {
+        this.cases.loading = true;
+        this.cases.error = '';
+        try {
+          const data = await api('case.list', {
+            filters: this.filtersPayload(),
+            page: page || this.cases.page,
+            pageSize: this.cases.pageSize,
+            sort: { key: 'Last_Activity_At', dir: 'desc' }
+          });
+          this.cases.items = data.items;
+          this.cases.total = data.total;
+          this.cases.page = data.page;
+          this.cases.loaded = true;
+        } catch (err) {
+          this.cases.error = (err && err.message) ? err.message : 'Gagal memuat daftar case.';
+          this.cases.items = [];
+        } finally {
+          this.cases.loading = false;
+        }
+      },
+
+      setQuick(key) {
+        if (this.quick === key) return;
+        this.quick = key;
+        this.cases.page = 1;
+        this.loadCases(1);
+      },
+
+      /** Debounce 400ms — tiap ketikan memicu pembacaan sheet penuh di backend. */
+      onSearchInput() {
+        clearTimeout(this._searchTimer);
+        this._searchTimer = setTimeout(() => {
+          this.cases.page = 1;
+          this.loadCases(1);
+        }, 400);
+      },
+
+      get totalPages() {
+        return Math.max(1, Math.ceil(this.cases.total / this.cases.pageSize));
+      },
+      gotoPage(p) {
+        if (p < 1 || p > this.totalPages || p === this.cases.page) return;
+        this.loadCases(p);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+
+      // ── Detail case ──────────────────────────────────────────────────────
+
+      async openCase(caseNo) {
+        this.view = 'caseDetail';
+        if (this.detail.caseNo === caseNo && this.detail.data) return;
+
+        // Baris dari daftar dipakai sebagai isian sementara. Layar langsung
+        // menampilkan nomor case, model, dan keluhan TANPA menunggu jaringan --
+        // sisanya menyusul. Yang membuat aplikasi terasa cepat bukan request
+        // yang lebih singkat, tapi layar yang tidak pernah kosong.
+        
+        // =====================================================================
+        // ---> REVISI 2: KODE SUDAH DIGANTI DI SINI <---
+        // =====================================================================
+        const seed = this.cases.items.find(function (x) { return x.Case_No === caseNo; });
+        this.detail = {
+          caseNo: caseNo,
+          data: seed ? { 'case': seed, _partial: true } : null,
+          loading: true, error: ''
+        };
+        this.detailTab = 'summary';
+        this.reply = { text: '', internal: false, busy: false };
+        // =====================================================================
+
+        try {
+          this.detail.data = await api('case.get', { caseNo: caseNo });
+        } catch (err) {
+          this.detail.error = (err && err.message) ? err.message : 'Gagal memuat case.';
+        } finally {
+          this.detail.loading = false;
+        }
+      },
+
+      // ── Toast ────────────────────────────────────────────────────────────
+
+      notify(text, tone) {
+        this.toast = { show: true, text: text, tone: tone || 'ok' };
+        setTimeout(() => { this.toast.show = false; }, 3200);
+      },
+
+      // ── Helper tampilan ──────────────────────────────────────────────────
+
+      /** Badge SLA memakai kelas yang sudah ada di css.html. */
+      slaClass(status) {
+        return {
+          ON_TIME:  'badge-sla-on-time',
+          NEAR_DUE: 'badge-sla-near-due',
+          OVERDUE:  'badge-sla-overdue'
+        }[status] || 'badge-sla-none';
+      },
+      slaLabel(status) {
+        return {
+          ON_TIME: 'Tepat waktu', NEAR_DUE: 'Hampir jatuh tempo', OVERDUE: 'Terlambat'
+        }[status] || '—';
+      },
+
+      /** Status case: netral semua. Warna HANYA untuk SLA (CLAUDE.md §8). */
+      statusLabel(st) { return st || '—'; },
+
+      /**
+       * Priority: hanya Urgent/Critical yang diberi penekanan. Normal sengaja
+       * tanpa badge — kalau semua case punya badge, tidak ada yang menonjol.
+       */
+      priorityClass(p) {
+        if (p === 'Critical') return 'text-red-700 bg-red-50 ring-red-200';
+        if (p === 'Urgent')   return 'text-amber-700 bg-amber-50 ring-amber-200';
+        return '';
+      },
+
+      /** "3 jam lalu" — teknisi butuh jarak waktu, bukan timestamp penuh. */
+      ago(iso) {
+        if (!iso) return '—';
+        const t = new Date(iso).getTime();
+        if (isNaN(t)) return '—';
+        const m = Math.floor((Date.now() - t) / 60000);
+        if (m < 1)    return 'baru saja';
+        if (m < 60)   return m + ' mnt lalu';
+        const h = Math.floor(m / 60);
+        if (h < 24)   return h + ' jam lalu';
+        const d = Math.floor(h / 24);
+        if (d < 30)   return d + ' hr lalu';
+        return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: '2-digit' });
+      },
+
+      /** Tanggal + jam WIB lengkap, dipakai untuk deadline (08-notifications.md §3). */
+      dateTime(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleDateString('id-ID', {
+          weekday: 'short', day: 'numeric', month: 'short',
+          hour: '2-digit', minute: '2-digit'
+        }) + ' WIB';
+      },
+
+      truncate(t, len) {
+        t = t || '';
+        return t.length > len ? t.slice(0, len).trimEnd() + '…' : t;
+      },
+
+      nf(x) { return new Intl.NumberFormat('id-ID').format(Number(x) || 0); }
+    });
+  }
 </script>

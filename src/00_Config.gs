@@ -202,7 +202,7 @@ function scriptPropOptional_(key, fallback) {
 }
 
 /** Versi aplikasi. Dinaikkan tiap fase; dikembalikan oleh sys.ping. */
-const APP_VERSION = 'fase-6';
+const APP_VERSION = 'fase-7';
 
 // ── CONFIG sheet reader (cache 6 jam, key-value) ─────────────────────────
 const Config_ = {
@@ -254,7 +254,10 @@ const Config_ = {
   ['FEATURE_GEMINI', 'TRUE', 'Matikan kalau kuota Gemini habis.'],
   ['FEATURE_WA', 'FALSE', 'Aktifkan saat provider WA siap.'],
   ['WA_PROVIDER', '', 'FONNTE | WABLAS | META | CUSTOM. Kosong = belum aktif.'],
-  ['GEMINI_MODEL', '', 'Diisi saat setup, lihat docs/07-ai-advisory.md.'],
+  ['GEMINI_MODEL', '', 'Diisi saat setup dari output geminiListModels(). Pilih kelas Flash.'],
+  ['GEMINI_DAILY_LIMIT', '200', 'Batas panggilan Gemini/hari. Jauh di bawah kuota free tier — pagar biaya, bukan pagar teknis.'],
+  ['GEMINI_CALLS_TODAY', '0', 'Counter berjalan. Direset malas saat GEMINI_CALLS_DATE beda hari.'],
+  ['GEMINI_CALLS_DATE', '', 'Tanggal counter di atas (yyyy-MM-dd). Pola sama dengan EMAIL_SENT_DATE.'],
   ['EMAIL_DAILY_QUOTA', '1500', 'Batas LUNAK per hari. Pagar sebenarnya = MailApp.getRemainingDailyQuota().'],
   ['EMAIL_SENT_TODAY', '0', 'Counter berjalan. Direset malas saat EMAIL_SENT_DATE beda hari.'],
   ['EMAIL_SENT_DATE', '', 'Tanggal counter di atas (yyyy-MM-dd). K6 — tidak perlu trigger tengah malam.'],
@@ -350,6 +353,27 @@ var Holidays_ = {
     CacheService.getScriptCache().remove(HOLIDAY_CACHE_KEY_);
   }
 };
+
+/**
+ * Menambahkan key CONFIG yang belum ada ke sheet. setupAll() cuma seed sekali,
+ * jadi key baru dari fase berikutnya tidak pernah muncul sendiri.
+ * Jalankan manual dari editor GAS setiap kali DEFAULT_CONFIG bertambah.
+ */
+function patchConfigMissingKeys() {
+  const sh = getSheet_(SHEETS.CONFIG);
+  const existing = {};
+  TC.readAll(SHEETS.CONFIG).forEach(function (r) { existing[r.Key] = 1; });
+  let added = 0;
+  DEFAULT_CONFIG.forEach(function (row) {
+    if (existing[row[0]]) return;
+    sh.appendRow([row[0], row[1], row[2], nowIso_()]);
+    console.log('CONFIG += ' + row[0]);
+    added++;
+  });
+  TC.invalidate(SHEETS.CONFIG);
+  Config_.invalidate();
+  console.log(added ? (added + ' key ditambahkan.') : 'Semua key sudah ada.');
+}
 
 /** Satu-satunya jalan resmi mendapatkan argumen SLA engine. */
 function slaContext_() {

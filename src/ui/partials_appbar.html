@@ -1,0 +1,89 @@
+<!--
+  Kerangka layar terautentikasi: header atas + navigasi bawah (mobile).
+  Dipakai bersama oleh caseList / caseDetail / caseNew / account, jadi ditulis
+  SEKALI di sini, bukan diulang di tiap partial.
+
+  Ditampilkan hanya kalau user sudah login DAN tidak sedang dipaksa ganti PIN.
+-->
+<template x-if="!booting && user && view !== 'login' && view !== 'changePin'">
+  <div>
+
+    <!-- ── Header ─────────────────────────────────────────────────────── -->
+    <header class="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-slate-200/80">
+      <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
+
+        <!-- Tombol kembali menggantikan logo saat berada di layar anak.
+             Satu slot, dua fungsi — hemat ruang horizontal di layar 360px. -->
+        <button type="button"
+                x-show="view === 'caseDetail' || view === 'caseNew'"
+                @click="go('#/cases')"
+                class="-ml-1 w-9 h-9 shrink-0 rounded-full flex items-center justify-center
+                       text-slate-600 hover:bg-slate-100 active:bg-slate-200 transition-colors"
+                aria-label="Kembali">
+          <i class="fa-solid fa-chevron-left text-sm"></i>
+        </button>
+
+        <div class="flex items-center gap-2.5 min-w-0"
+             x-show="view !== 'caseDetail' && view !== 'caseNew'">
+          <div class="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center"
+               style="background-color: var(--accent);">
+            <i class="fa-solid fa-screwdriver-wrench text-white text-[11px]"></i>
+          </div>
+          <p class="text-[15px] font-semibold tracking-tight text-slate-900">MB T-CASE</p>
+        </div>
+
+        <p class="text-[15px] font-semibold tracking-tight text-slate-900 truncate"
+           x-show="view === 'caseDetail'" x-text="detail.caseNo"></p>
+        <p class="text-[15px] font-semibold tracking-tight text-slate-900"
+           x-show="view === 'caseNew'">Case baru</p>
+
+        <div class="flex-1"></div>
+
+        <!-- Navigasi desktop. Di mobile digantikan bilah bawah. -->
+        <nav class="hidden md:flex items-center gap-1">
+          <button type="button" @click="go('#/cases')"
+                  class="nav-link" :class="view === 'caseList' ? 'nav-link-on' : ''">Case</button>
+          <button type="button" @click="go('#/akun')"
+                  class="nav-link" :class="view === 'account' ? 'nav-link-on' : ''">Akun</button>
+        </nav>
+
+        <button type="button" @click="go('#/cases/new')"
+                x-show="can('case.create') && view !== 'caseNew'"
+                class="btn-primary h-8 px-3 rounded-lg text-[13px] font-medium
+                       inline-flex items-center gap-1.5 shrink-0 transition-colors">
+          <i class="fa-solid fa-plus text-[10px]"></i>
+          <span class="hidden sm:inline">Case baru</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ── Navigasi bawah (mobile) ────────────────────────────────────── -->
+    <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/90 backdrop-blur-md
+                border-t border-slate-200/80 pb-[env(safe-area-inset-bottom)]">
+      <div class="grid grid-cols-2">
+        <button type="button" @click="go('#/cases')" class="tabbar-btn"
+                :class="(view === 'caseList' || view === 'caseDetail') ? 'tabbar-btn-on' : ''">
+          <i class="fa-solid fa-list-check text-[15px]"></i>
+          <span>Case</span>
+        </button>
+        <button type="button" @click="go('#/akun')" class="tabbar-btn"
+                :class="view === 'account' ? 'tabbar-btn-on' : ''">
+          <i class="fa-regular fa-user text-[15px]"></i>
+          <span>Akun</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- ── Toast ──────────────────────────────────────────────────────── -->
+    <!-- Kata di toast HARUS sama dengan kata di tombol pemicunya
+         ("Kirim ke IIDI" -> "Terkirim ke IIDI"), lihat CLAUDE.md §8. -->
+    <div x-show="toast.show" x-transition.opacity.duration.200ms
+         class="fixed left-1/2 -translate-x-1/2 bottom-20 md:bottom-8 z-50 max-w-[90vw]">
+      <div class="px-4 py-2.5 rounded-xl text-[13px] font-medium text-white shadow-lg
+                  shadow-slate-900/20"
+           :class="toast.tone === 'err' ? 'bg-red-600' : 'bg-slate-900'"
+           x-text="toast.text"></div>
+    </div>
+
+  </div>
+</template>

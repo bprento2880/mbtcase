@@ -170,6 +170,7 @@ var Auth_ = {
       });
     });
     Session_.revokeAllForUser(ctx.user.userId, ctx.sid);
+    Session_.invalidateSid(ctx.sid);   // ctx lama masih membawa mustChangePin: true
     Audit_.log(ctx, 'PIN_CHANGED', ctx.user.userId, 'OK', '');
     return {};
   }
@@ -212,7 +213,99 @@ function regenerateAdminPin(pin) {
   const salt = newSalt_();
   TC.update(TC.S.USERS, u._row, {
     PIN_Hash: hashPin_(p, salt), PIN_Salt: salt, PIN_Version: String(PIN_HASH_VERSION),
-    Must_Change_PIN: 'TRUE', Failed_Attempts: '0', Locked_Until: '', Updated_At: TC.nowIso()
+   Must_Change_PIN: 'TRUE', Failed_Attempts: '0', Locked_Until: '', Updated_At: TC.nowIso()
   });
   console.log('PIN admin di-hash ulang. Login pakai ' + p + ', wajib ganti PIN.');
+}
+
+/** Jalankan DULU untuk lihat Dealer_ID yang sah. */
+function listDealers() {
+  TC.readAll(TC.S.DEALERS).forEach(function (d) {
+    console.log(d.Dealer_ID + ' | ' + d.Dealer_Name + ' | ' + d.Area + ' | ' + d.Status);
+  });
+}
+
+/** Diagnosa Bug 2. Jalankan SETELAH ganti PIN gagal, tanpa menutup browser. */
+function diagPinState() {
+  const EMAIL = 'dealertest2@inchcape.co.id';
+
+  TC.invalidate(TC.S.USERS);
+  TC.invalidate(TC.S.SESSIONS);
+
+  const u = TC.filter(TC.S.USERS, function (r) {
+    return String(r.Email).trim().toLowerCase() === EMAIL;
+  })[0];
+  if (!u) { console.log('User tidak ada.'); return; }
+
+  console.log('A. Must_Change_PIN di sheet : ' + u.Must_Change_PIN);
+  console.log('B. invalidateSid ter-push   : ' + (typeof Session_.invalidateSid === 'function'));
+
+  const cache = CacheService.getScriptCache();
+  const rows = TC.filter(TC.S.SESSIONS, function (r) {
+    return r.User_ID === u.User_ID && r.Revoked !== 'TRUE';
+  });
+  console.log('C. Sesi aktif: ' + rows.length);
+  rows.forEach(function (r) {
+    const raw = cache.get('sess_' + r.Token_Hash);
+    let flag = '(tidak ada di cache)';
+    if (raw) {
+      try { flag = 'mustChangePin=' + JSON.parse(raw).user.mustChangePin; }
+      catch (e) { flag = '(cache rusak)'; }
+    }
+    console.log('   ' + r.Session_ID.slice(0, 8) + ' | ' + flag);
+  });
+}
+
+/** Isi OBJ, lalu Run. Dealer_Name diambil dari sheet, tidak diketik ulang. */
+function createUserManual() {
+  const OBJ = {
+    fullName: 'Budi Santoso',
+    role:     'CDT',              // CDT | Senior_Tech | Dealer_SM | IIDI_Tech | IIDI_Tech_Mgr | IIDI_Area_Mgr | IIDI_Director
+    dealerId: 'DLR-CAR-01',       // '' untuk role IIDI_*
+    email:    'dealertest2@inchcape.co.id',
+    phoneWa:  '628123456789',
+    pin:      '481336'
+  };
+
+  const pin   = validatePinFormat_(OBJ.pin);
+  const email = String(OBJ.email).trim().toLowerCase();
+  if (!PERMISSIONS[OBJ.role]) throw new AppError(ERROR_CODES.VALIDATION, 'Role tidak dikenal: ' + OBJ.role);
+
+  let dealerName = '';
+  if (OBJ.dealerId) {
+    const d = TC.find(TC.S.DEALERS, 'Dealer_ID', OBJ.dealerId);
+    if (!d) throw new AppError(ERROR_CODES.NOT_FOUND, 'Dealer_ID tidak ada di DEALERS: ' + OBJ.dealerId);
+    dealerName = d.Dealer_Name;
+  } else if (OBJ.role.indexOf('IIDI_') !== 0) {
+    throw new AppError(ERROR_CODES.VALIDATION, 'Role dealer wajib punya Dealer_ID.');
+  }
+
+  const dup = TC.filter(TC.S.USERS, function (r) {
+    return String(r.Email).trim().toLowerCase() === email && r.Status !== 'INACTIVE';
+  })[0];
+  if (dup) throw new AppError(ERROR_CODES.VALIDATION, 'Email sudah dipakai oleh ' + dup.User_ID);
+
+  let max = 0;
+  TC.readAll(TC.S.USERS).forEach(function (r) {
+    const m = /^U-(\d+)$/.exec(String(r.User_ID).trim());
+    if (m) max = Math.max(max, Number(m[1]));
+  });
+  const userId = 'U-' + ('0000' + (max + 1)).slice(-4);
+
+  const salt = newSalt_();
+  const ts   = TC.nowIso();
+  TC.withLock(function () {
+    TC.append(TC.S.USERS, {
+      User_ID: userId, Full_Name: OBJ.fullName, Role: OBJ.role,
+      Dealer_ID: OBJ.dealerId || '', Dealer_Name: dealerName,
+      Email: email, Phone_WA: String(OBJ.phoneWa || ''),
+      PIN_Hash: hashPin_(pin, salt), PIN_Salt: salt,
+      PIN_Version: String(PIN_HASH_VERSION),
+      Status: 'ACTIVE', Must_Change_PIN: 'TRUE',
+      Failed_Attempts: '0', Locked_Until: '', Notif_Level: 'All',
+      Created_At: ts, Updated_At: ts, Last_Login_At: ''
+    });
+    TC.flush();
+  });
+  console.log('OK ' + userId + ' | ' + email + ' | PIN sementara ' + pin + ' (wajib ganti saat login)');
 }

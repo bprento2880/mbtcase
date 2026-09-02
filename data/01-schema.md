@@ -320,7 +320,7 @@ Setiap mutasi case menulis satu baris. Tidak ada pengecualian.
 |---|---|
 | Event_ID | string (PK) |
 | Case_No | string |
-| Event_Type | enum: `Created` / `Status_Changed` / `Priority_Changed` / `Priority_Suggested` / `Assigned` / `Data_Requested` / `Data_Fulfilled` / `Attachment_Added` / `Escalated` / `Closure_Requested` / `Closed` / `Reopened` / `SLA_Breached` / `Field_Updated` |
+| Event_Type | enum: `Created` / `Status_Changed` / `Priority_Changed` / `Priority_Suggested` / `Assigned` / `Data_Requested` / `Data_Fulfilled` / `Attachment_Added` / `Escalated` / `Closure_Requested` / `Closed` / `Reopened` / `SLA_Breached` / `Field_Updated` / `Advisory_Acknowledged`
 | From_Value | string |
 | To_Value | string |
 | Actor_User_ID | string |
@@ -328,6 +328,11 @@ Setiap mutasi case menulis satu baris. Tidak ada pengecualian.
 | Note | text |
 | Detail_JSON | string |
 | Created_At | timestamp |
+> **REVISI (Fase 7):** enum `Event_Type` menambah `Advisory_Acknowledged`.
+> `To_Value` berisi `PROCEED` / `CONTINUE_SELF_DIAG` / `APPLIED` / `DISMISSED`.
+> Tidak mengubah field case apapun — murni jejak bahwa dealer diberi saran dan
+> memilih apa. Menumpang `Field_Updated` ditolak karena membuat pilihan advisory
+> tidak bisa dipisahkan dari edit biasa di dashboard Fase 8.
 
 > **REVISI (Fase 0):** enum `Event_Type` menambah `Priority_Suggested`.
 > ```
@@ -572,6 +577,9 @@ Sheet key-value generik. Kolom: `Key`, `Value`, `Description`, `Updated_At`.
 | FEATURE_WA | FALSE | Aktifkan saat provider WA siap |
 | WA_PROVIDER | (kosong) | `FONNTE` / `WABLAS` / `META` / `CUSTOM`. Kosong = belum aktif |
 | GEMINI_MODEL | (isi saat setup) | Nama model disimpan di sini supaya gampang diganti |
+| GEMINI_DAILY_LIMIT | 200 | Batas panggilan Gemini/hari. Pagar biaya, bukan pagar teknis |
+| GEMINI_CALLS_TODAY | 0 | Counter berjalan, reset malas saat tanggal beda |
+| GEMINI_CALLS_DATE | (kosong) | Tanggal counter di atas (yyyy-MM-dd) |
 | EMAIL_DAILY_QUOTA | 80 | Batas **lunak** per hari. Pagar sebenarnya `MailApp.getRemainingDailyQuota()` |
 | EMAIL_SENT_TODAY | 0 | Counter berjalan. Direset malas saat `EMAIL_SENT_DATE` beda hari |
 | EMAIL_SENT_DATE | (kosong) | Tanggal counter di atas, `yyyy-MM-dd`. Menghindari trigger tengah malam |

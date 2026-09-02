@@ -150,14 +150,19 @@ var Case_ = (function () {
     const dtc = s(d.DTC_Codes).toLowerCase();
     if (dtc && dtc !== '-') sc += 10;
     let qt = false, media = false;
-    atts.forEach(function (a) {
+   atts.forEach(function (a) {
       if (a.Evidence_Type === 'Quick_Test') qt = true;
       if (a.Evidence_Type === 'Photo' || a.Evidence_Type === 'Video') media = true;
     });
     if (qt) sc += 15;
     if (media) sc += 5;
-    // 10 poin ">=60% recommended evidence" butuh EVIDENCE_RULES -> Fase 7.
-    // Sengaja tidak dihitung sekarang; skor maksimum realistis Fase 2 = 90.
+    // 10 poin ">=60% recommended evidence" (01-schema.md §20) — Fase 7.
+    // coveragePoints() hanya membaca EVIDENCE_RULES (cached 6 jam), tidak
+    // menyentuh CASES, jadi aman dipanggil dari create() saat case BELUM ada.
+    if (typeof Advisory_ !== 'undefined' && typeof Advisory_.coveragePoints === 'function') {
+      try { sc += Advisory_.coveragePoints(c, d, atts); }
+      catch (e) { console.error('qualityScore/coverage: ' + e); }
+    }
     return Math.min(100, sc);
   }
   function scoreCategory(x) {
@@ -198,7 +203,13 @@ var Case_ = (function () {
     out.Prod_Year = s(r.Prod_Year) ? n(r.Prod_Year) : '';
     // Dihitung saat read, tidak pernah disimpan (01-schema.md §4, 04-state-machine.md §6).
     out.Activity_Status = (r.Status === ST.CLOSED) ? 'Active' : activityOf(r.Last_Activity_At);
-    out.SLA_Status = slaOf(r).status;
+    // slaOf() sudah menghitung semuanya; membuang selain status berarti
+    // frontend cuma bisa bilang "Terlambat" tanpa tahu terlambat berapa lama.
+    const sla = slaOf(r);
+    out.SLA_Status = sla.status;
+    out.SLA_Deadline = sla.deadline || '';
+    out.SLA_Remaining_Minutes = sla.remainingWorkingMinutes || 0;
+    out.SLA_Overdue_Minutes = sla.overdueWorkingMinutes || 0;
     return out;
   }
 
@@ -277,19 +288,29 @@ var Case_ = (function () {
     });
 
     event(ctx, caseNo, 'Created', '', ST.CREATED, 'Case dibuat', { priority: priority });
-    return { caseNo: caseNo, qualityScore: score, advisory: null };   // advisory -> Fase 7
+
+    // FASE 7 / keputusan D2: rule engine SAJA di sini. Gemini sengaja tidak
+    // dipanggil supaya tombol simpan tidak menggantung 3-8 detik. Gemini baru
+    // jalan saat case benar-benar dikirim ke IIDI (Created -> Open).
+    const advisory = (typeof Advisory_ !== 'undefined')
+      ? Advisory_.onCreate(ctx, rec, diag) : null;
+    return { caseNo: caseNo, qualityScore: score, advisory: advisory };
   }
 
   // ── 8. case.get ───────────────────────────────────────────────────────────
-  function get(ctx, p) {
-    const caseNo = s(p.caseNo);
-    if (!caseNo) throw new AppError(ERROR_CODES.VALIDATION, 'caseNo wajib diisi.', { caseNo: 'Wajib diisi.' });
-    const r = row(caseNo);
-    assertCanAccessCase_(ctx, r);
-    // Draft belum dikirim = belum terlihat oleh IIDI (04-state-machine.md §1).
-    if (r.Status === ST.CREATED && isIidi(ctx.user.role)) {
-      throw new AppError(ERROR_CODES.FORBIDDEN, 'Case ini masih draft dan belum dikirim ke IIDI.');
-    }
+function get(ctx, p) {
+  // Semua sheet yang akan disentuh dibaca dalam SATU round-trip.
+  TC.preload([TC.S.CASES, TC.S.DIAG, TC.S.ATTACH, TC.S.THREAD, TC.S.REQUESTS, TC.S.AI_LOG, TC.S.EVENTS]);
+
+  const caseNo = s(p.caseNo);
+  if (!caseNo) throw new AppError(ERROR_CODES.VALIDATION, 'caseNo wajib diisi.', { caseNo: 'Wajib diisi.' });
+  const r = row(caseNo);
+  assertCanAccessCase_(ctx, r);
+  
+  // Draft belum dikirim = belum terlihat oleh IIDI (04-state-machine.md §1).
+  if (r.Status === ST.CREATED && isIidi(ctx.user.role)) {
+    throw new AppError(ERROR_CODES.FORBIDDEN, 'Case ini masih draft dan belum dikirim ke IIDI.');
+  }
     return {
       'case': toPublic(r),
       diagnostics: diagOf(caseNo),
@@ -299,17 +320,22 @@ var Case_ = (function () {
       thread: (typeof Thread_ !== 'undefined') ? Thread_.forCase(ctx, caseNo) : [],
       dataRequests: (typeof Request_ !== 'undefined') ? Request_.forCase(caseNo) : [],
       escalation: null,    // Fase 9
-      advisory: null,      // Fase 7
+      // Rule engine + hasil Gemini LAMA yang hash-nya masih cocok. TIDAK pernah
+      // memanggil Gemini — halaman detail dibuka berkali-kali dan tiap
+      // pembukaan tidak boleh membakar kuota (07-ai-advisory.md §4 no.2).
+      advisory: (typeof Advisory_ !== 'undefined')
+        ? Advisory_.forCase(ctx, r, diagOf(caseNo), attachOf(caseNo)) : null,
       similarCases: []     // Fase 10
     };
   }
-
   // ── 9. case.list ──────────────────────────────────────────────────────────
   const NUMERIC_SORT = { Mileage: 1, Quality_Score: 1, Prod_Year: 1 };
   const SORTABLE = ['Case_No','Created_At','Updated_At','Last_Activity_At','Priority',
                     'Status','Model','Quality_Score','Dealer_ID'];
 
   function list(ctx, p) {
+  // Preload untuk kebutuhan list (CASES dan DEALERS)
+  TC.preload([TC.S.CASES, TC.S.DEALERS]);
     const u = ctx.user;
     const f = p.filters || {};
     let rows = TC.readAll(TC.S.CASES);
@@ -570,6 +596,13 @@ var Case_ = (function () {
       note: s(p.note)
     }]);
 
+    // FASE 7 / keputusan D2: satu-satunya titik Gemini dipanggil otomatis.
+    // onSubmit() tidak pernah melempar — transisi status tidak boleh gagal
+    // gara-gara AI (07-ai-advisory.md §2).
+    if (res.from === ST.CREATED && to === ST.OPEN && typeof Advisory_ !== 'undefined') {
+      Advisory_.onSubmit(ctx, caseNo);
+    }
+
     const fresh = row(caseNo);
     return { 'case': toPublic(fresh), sla: slaOf(fresh) };
   }
@@ -678,7 +711,23 @@ var Case_ = (function () {
     transition: transition, assign: assign, setPriority: setPriority,
     // Fase 4 — 23_AttachService.gs butuh keduanya. event() tetap satu-satunya
     // penulis CASE_EVENTS (01-schema.md §9), jangan tulis langsung dari file lain.
-    event: event, recalcScore: recalcScore,
+    event: event,
+    recalcScore: recalcScore,
+    // Sumber tunggal enum untuk validasi backend DAN dropdown frontend
+    // (lewat 14_Master.gs). Jangan pernah menyalin daftar ini ke file lain.
+    ENUMS: {
+      statuses: Object.keys(ST).map(function (k) { return ST[k]; }),
+      symptoms: SYMPTOMS,
+      warranty: WARRANTY,
+      priorities: PRIORITIES,
+      // Dua enum ini tidak punya konstanta di file ini — ditulis langsung dari
+      // 01-schema.md §4. Kalau nanti dipakai untuk validasi juga, angkat jadi
+      // const di bagian atas IIFE dan rujuk dari sini.
+      frequencies: ['Always', 'Intermittent', 'Once', 'Under_Condition'],
+      waitingReasons: ['Additional_Data', 'Dealer_Verification', 'IIDI_Technical_Review',
+                       'MBAG_Feedback', 'Repair_Verification', 'Customer_Confirmation'],
+      vehicleStatus: VEHICLE_STATUS
+    },
     // Fase 5 — 24_RequestService.gs melewati blokir Waiting Dealer Reply di
     // transition(). JANGAN daftarkan ini ke ROUTES.
     transitionInternal: transitionCore,

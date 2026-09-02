@@ -1,0 +1,381 @@
+<!--
+  Detail case. Layar tempat pekerjaan sebenarnya terjadi.
+
+  Susunan disengaja:
+    1. Ringkas    - apa ini, seberapa mendesak. Terbaca dalam 2 detik.
+    2. Tindakan   - apa yang diminta dari saya SEKARANG (data request).
+    3. Advisory   - saran sistem (07-ai-advisory.md §5).
+    4. Tab        - Ringkasan / Diskusi / Lampiran.
+
+  Yang menuntut aksi selalu di atas yang sekadar informasi.
+-->
+<main x-show="!booting && view === 'caseDetail'" x-cloak
+      class="max-w-3xl mx-auto px-4 pt-4 pb-24 md:pb-10">
+
+  <!-- ── Skeleton ───────────────────────────────────────────────────────── -->
+  <!-- Hanya tampil kalau TIDAK ada data awal dari daftar. Kalau ada, layar
+       langsung terisi dan skeleton cuma akan berkedip tanpa guna. -->
+  <div x-show="detail.loading && !detail.data" class="space-y-3">
+    <div class="skeleton h-28 rounded-xl"></div>
+    <div class="skeleton h-40 rounded-xl"></div>
+    <div class="skeleton h-64 rounded-xl"></div>
+  </div>
+
+  <!-- ── Error ──────────────────────────────────────────────────────────── -->
+  <div x-show="detail.error" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+    <p class="text-[13px] text-red-800" x-text="detail.error"></p>
+    <button type="button" @click="reloadCase()"
+            class="mt-2 text-[13px] font-medium text-red-900 underline underline-offset-2">
+      Coba lagi
+    </button>
+  </div>
+
+  <template x-if="detail.data && detail.data.case">
+    <div class="space-y-3">
+
+      <!-- ══════════ 1. RINGKAS ══════════ -->
+      <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3.5">
+          <div class="flex items-start gap-2 mb-2">
+            <span class="font-mono text-[13px] font-semibold text-slate-900"
+                  x-text="c.Case_No"></span>
+            <span x-show="c.Priority && c.Priority !== 'Normal'"
+                  class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase
+                         tracking-wide ring-1 ring-inset"
+                  :class="priorityClass(c.Priority)" x-text="c.Priority"></span>
+            <span class="ml-auto px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0"
+                  :class="slaClass(sla.status)" x-text="slaLabel(sla.status)"></span>
+          </div>
+
+          <p class="text-[16px] leading-snug text-slate-900 font-medium"
+             x-text="c.Complaint_Desc || '—'"></p>
+
+           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-2.5 text-[12px] text-slate-500">
+            <span class="font-medium text-slate-700" x-text="modelName(c.Model)"></span>
+            <span aria-hidden="true">·</span>
+            <span x-text="c.Prod_Year || '—'"></span>
+            <span aria-hidden="true">·</span>
+            <span x-text="nf(c.Mileage) + ' km'"></span>
+            <span aria-hidden="true">·</span>
+            <span class="font-mono" x-text="c.VIN || '—'"></span>
+          </div>
+        </div>
+
+        <!-- Status + deadline. Kalimat utuh, bukan label terpisah -- teknisi
+             tidak perlu merakit sendiri "Waiting" + tanggal jadi arti. -->
+        <div class="px-4 py-2.5 bg-slate-50 border-t border-slate-100">
+          <p class="text-[13px] text-slate-700">
+            <span class="font-medium" x-text="c.Status"></span><template x-if="c.Current_Waiting_Reason"><span
+              x-text="' — ' + waitingLabel(c.Current_Waiting_Reason)"></span></template>
+          </p>
+          <p x-show="sla.deadline" class="text-[12px] mt-0.5"
+             :class="sla.status === 'OVERDUE' ? 'text-red-600 font-medium' : 'text-slate-500'">
+            <span x-text="sla.status === 'OVERDUE' ? 'Lewat batas ' : 'Batas waktu '"></span>
+            <span x-text="dateTime(sla.deadline)"></span>
+            <span x-show="sla.status === 'OVERDUE' && sla.overdueWorkingMinutes"
+                  x-text="' · terlambat ' + workMinutes(sla.overdueWorkingMinutes)"></span>
+            <span x-show="sla.status !== 'OVERDUE' && sla.remainingWorkingMinutes >= 0"
+                  x-text="' · sisa ' + workMinutes(sla.remainingWorkingMinutes)"></span>
+          </p>
+          <p x-show="!sla.deadline" class="text-[12px] text-slate-500 mt-0.5">
+            Tidak ada batas waktu aktif pada status ini.
+          </p>
+        </div>
+      </section>
+
+      <!-- ══════════ 2. YANG DIMINTA DARI SAYA ══════════ -->
+      <template x-for="r in openRequests" :key="r.Request_ID">
+        <section class="bg-white rounded-xl border-2 border-amber-300 overflow-hidden">
+          <div class="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
+            <i class="fa-solid fa-clipboard-list text-amber-700 text-[12px]"></i>
+            <p class="text-[13px] font-semibold text-amber-900">Data tambahan diminta</p>
+            <span class="ml-auto text-[11px] text-amber-800"
+                  x-text="'Batas ' + dateTime(r.Due_At)"></span>
+          </div>
+          <ol class="px-4 py-3 space-y-1.5 list-decimal list-inside">
+            <template x-for="(it, i) in parseItems(r.Items_JSON)" :key="i">
+              <li class="text-[14px] text-slate-800">
+                <span x-text="it.label"></span>
+                <span x-show="it.evidenceType" class="text-[11px] text-slate-500"
+                      x-text="' (' + it.evidenceType + ')'"></span>
+              </li>
+            </template>
+          </ol>
+        </section>
+      </template>
+
+      <!-- ══════════ 3. PANEL ADVISORY — 07-ai-advisory.md §5 ══════════ -->
+      <section x-show="adv" class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+
+        <button type="button" @click="advisoryOpen = !advisoryOpen"
+                class="w-full px-4 py-3 flex items-center gap-2 text-left hover:bg-slate-50
+                       transition-colors">
+          <i class="fa-solid fa-lightbulb text-[12px]" style="color: var(--accent);"></i>
+          <p class="text-[13px] font-semibold text-slate-900">Saran sistem</p>
+          <!-- Label WAJIB: setiap output AI ditandai jelas sebagai saran yang
+               perlu ditinjau manusia (07-ai-advisory.md §1). -->
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+            perlu ditinjau
+          </span>
+          <i class="fa-solid ml-auto text-[11px] text-slate-400"
+             :class="advisoryOpen ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+        </button>
+
+        <div x-show="advisoryOpen" x-collapse class="px-4 pb-4 space-y-4 border-t border-slate-100 pt-3.5">
+
+          <!-- Saran priority -->
+          <div x-show="adv.priorityAdvice">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+              Priority
+            </p>
+            <p class="text-[13px] text-slate-600">
+              Dealer memilih
+              <span class="font-medium text-slate-900" x-text="adv.priorityAdvice.dealerPriority"></span>
+            </p>
+            <p class="text-[14px] text-slate-800 mt-1 leading-snug"
+               x-text="adv.priorityAdvice.reason"></p>
+
+            <div x-show="adv.priorityAdvice.suggested !== 'No_Change'" class="flex gap-2 mt-2.5">
+              <!-- Tombol ini TIDAK menyimpan apapun. Ia hanya mencatat bahwa
+                   saran sudah ditinjau. Perubahan Priority tetap lewat form
+                   edit case oleh dealer (07-ai-advisory.md §5). -->
+              <button type="button" @click="ackAdvisory('APPLIED', 'priority')"
+                      class="h-8 px-3 rounded-lg text-[13px] font-medium text-white
+                             transition-colors" style="background-color: var(--accent);">
+                Saya tinjau
+              </button>
+              <button type="button" @click="ackAdvisory('DISMISSED', 'priority')"
+                      class="h-8 px-3 rounded-lg text-[13px] font-medium text-slate-600
+                             border border-slate-200 hover:bg-slate-50 transition-colors">
+                Abaikan
+              </button>
+            </div>
+          </div>
+
+          <!-- Bukti yang disarankan -->
+          <div x-show="adv.recommendedEvidence && adv.recommendedEvidence.length">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+              Bukti yang disarankan
+            </p>
+            <ul class="space-y-1.5">
+              <template x-for="(e, i) in adv.recommendedEvidence" :key="i">
+                <li class="flex items-start gap-2 text-[14px]">
+                  <i class="mt-0.5 text-[11px] shrink-0"
+                     :class="e.alreadyUploaded
+                       ? 'fa-solid fa-circle-check text-emerald-600'
+                       : 'fa-regular fa-circle text-slate-300'"></i>
+                  <div class="min-w-0">
+                    <span :class="e.alreadyUploaded ? 'text-slate-500' : 'text-slate-800'"
+                          x-text="e.label"></span>
+                    <span x-show="e.fromAi"
+                          class="ml-1 text-[10px] text-slate-400">· saran AI</span>
+                    <p x-show="e.why" class="text-[12px] text-slate-500 leading-snug"
+                       x-text="e.why"></p>
+                  </div>
+                  <span x-show="e.alreadyUploaded"
+                        class="ml-auto text-[11px] text-emerald-600 shrink-0">ada</span>
+                </li>
+              </template>
+            </ul>
+            <p class="text-[11px] text-slate-400 mt-2">
+              Ini rekomendasi, bukan syarat. Case tetap bisa dikirim tanpa semuanya.
+            </p>
+          </div>
+
+          <!-- Informasi yang belum lengkap -->
+          <div x-show="adv.missingInformation && adv.missingInformation.length">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+              Informasi yang belum lengkap
+            </p>
+            <ul class="space-y-1">
+              <template x-for="(m, i) in adv.missingInformation" :key="i">
+                <li class="text-[14px] text-slate-700 flex gap-2">
+                  <span class="text-slate-300" aria-hidden="true">•</span>
+                  <span x-text="m"></span>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <!-- Arah investigasi (hanya dari Gemini) -->
+          <div x-show="adv.likelyDirection">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+              Arah yang mungkin
+            </p>
+            <p class="text-[14px] text-slate-700 leading-snug" x-text="adv.likelyDirection"></p>
+          </div>
+
+          <!-- Penanda berulang / keselamatan -->
+          <template x-for="(f, i) in (adv.flags || [])" :key="i">
+            <div class="flex items-start gap-2 px-3 py-2 rounded-lg bg-slate-50">
+              <i class="fa-solid fa-triangle-exclamation text-amber-600 text-[11px] mt-0.5"></i>
+              <p class="text-[13px] text-slate-700">
+                <span class="font-medium" x-text="flagLabel(f.type)"></span>
+                <span x-show="f.detail" x-text="' — ' + f.detail"></span>
+              </p>
+            </div>
+          </template>
+
+          <!-- Kaki panel -->
+          <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+            <p class="text-[11px] text-slate-400">
+              Keyakinan <span x-text="confLabel(adv.confidence)"></span>
+              · sumber <span x-text="adv.source === 'GEMINI' ? 'Gemini' : 'aturan'"></span>
+              <span x-show="adv.cached">· tersimpan</span>
+              <span x-show="adv.generatedAt" x-text="' · ' + ago(adv.generatedAt)"></span>
+            </p>
+            <button type="button" @click="refreshAdvisory()" :disabled="advisoryBusy"
+                    class="ml-auto h-7 px-2.5 rounded-lg text-[12px] font-medium text-slate-600
+                           border border-slate-200 hover:bg-slate-50 disabled:opacity-50
+                           transition-colors shrink-0">
+              <i class="fa-solid fa-rotate text-[10px] mr-1"
+                 :class="advisoryBusy ? 'fa-spin' : ''"></i>
+              Minta saran ulang
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════ 4. TAB ══════════ -->
+      <div class="flex gap-1 p-1 bg-slate-100 rounded-xl">
+        <template x-for="t in detailTabs" :key="t.key">
+          <button type="button" @click="detailTab = t.key"
+                  class="flex-1 h-8 rounded-lg text-[13px] font-medium transition-colors"
+                  :class="detailTab === t.key
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'">
+            <span x-text="t.label"></span>
+            <span x-show="tabCount(t.key)" class="text-[11px] opacity-60"
+                x-text="'(' + tabCount(t.key) + ')'"></span>
+          </button>
+        </template>
+      </div>
+
+      <!-- ── Tab: Ringkasan ─────────────────────────────────────────────── -->
+      <section x-show="detailTab === 'summary'" class="space-y-3">
+
+        <div class="bg-white rounded-xl border border-slate-200 px-4 py-3.5">
+          <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2.5">
+            Kendaraan &amp; keluhan
+          </p>
+          <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+            <template x-for="f in vehicleFields" :key="f.k">
+              <div class="flex gap-2 text-[13px] border-b border-slate-50 pb-1.5">
+                <dt class="text-slate-500 w-32 shrink-0" x-text="f.label"></dt>
+                <dd class="text-slate-800 min-w-0 break-words"
+                    x-text="fieldValue(c, f)"></dd>
+              </div>
+            </template>
+          </dl>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 px-4 py-3.5">
+          <div class="flex items-center gap-2 mb-2.5">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Diagnostik
+            </p>
+            <span class="ml-auto text-[11px] text-slate-400"
+                  x-text="'Kelengkapan ' + (c.Quality_Score || 0) + '%'"></span>
+          </div>
+          <template x-if="!hasDiagnostics">
+            <p class="text-[13px] text-slate-500 py-2">
+              Belum ada data diagnostik. Isi hasil quick test, DTC, dan analisis
+              supaya tim technical bisa menindaklanjuti tanpa bertanya ulang.
+            </p>
+          </template>
+          <dl x-show="hasDiagnostics" class="space-y-2.5">
+            <template x-for="f in diagFields" :key="f.k">
+              <div x-show="d[f.k]">
+                <dt class="text-[11px] text-slate-500" x-text="f.label"></dt>
+                <dd class="text-[14px] text-slate-800 whitespace-pre-line leading-snug"
+                    x-text="d[f.k]"></dd>
+              </div>
+            </template>
+          </dl>
+        </div>
+      </section>
+
+      <!-- ── Tab: Diskusi ───────────────────────────────────────────────── -->
+      <section x-show="detailTab === 'thread'" class="space-y-2">
+        <template x-if="!thread.length">
+          <div class="bg-white rounded-xl border border-slate-200 px-4 py-8 text-center">
+            <p class="text-[14px] font-medium text-slate-900">Belum ada diskusi</p>
+            <p class="text-[13px] text-slate-500 mt-1">
+              Tulis pertanyaan atau temuan di sini supaya jejaknya tersimpan di case,
+              bukan hilang di percakapan terpisah.
+            </p>
+          </div>
+        </template>
+
+        <template x-for="m in thread" :key="m.Thread_ID">
+          <div class="bg-white rounded-xl border px-4 py-3"
+               :class="m.Message_Type === 'System'
+                 ? 'border-slate-100 bg-slate-50/60' : 'border-slate-200'">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-[13px] font-medium text-slate-900"
+                    x-text="m.Message_Type === 'System' ? 'Sistem' : m.Author_User_ID"></span>
+              <span class="text-[11px] text-slate-400" x-text="m.Author_Role"></span>
+              <span x-show="m.Visibility === 'IIDI_Only'"
+                    class="px-1.5 py-0.5 rounded text-[10px] font-medium
+                           bg-slate-800 text-white">internal</span>
+              <span class="ml-auto text-[11px] text-slate-400" x-text="ago(m.Created_At)"></span>
+            </div>
+            <p class="text-[14px] text-slate-800 whitespace-pre-line leading-snug"
+               x-text="m.Message"></p>
+          </div>
+        </template>
+
+        <!-- Komposer -->
+        <div x-show="can('thread.post')"
+             class="bg-white rounded-xl border border-slate-200 p-3">
+          <textarea x-model="reply.text" rows="3"
+                    placeholder="Tulis balasan…"
+                    class="w-full text-[14px] resize-y placeholder:text-slate-400
+                           focus:outline-none"></textarea>
+          <div class="flex items-center gap-2 pt-2 border-t border-slate-100">
+            <label x-show="can('thread.iidiOnly')"
+                   class="flex items-center gap-1.5 text-[12px] text-slate-600">
+              <input type="checkbox" x-model="reply.internal" class="rounded border-slate-300">
+              Internal IIDI saja
+            </label>
+            <button type="button" @click="postReply()"
+                    :disabled="reply.busy || !reply.text.trim()"
+                    class="btn-primary ml-auto h-8 px-3.5 rounded-lg text-[13px] font-medium
+                           transition-colors">
+              <span x-text="reply.busy ? 'Mengirim…' : 'Kirim'"></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Tab: Lampiran ──────────────────────────────────────────────── -->
+      <section x-show="detailTab === 'files'" class="space-y-2">
+        <template x-if="!attachments.length">
+          <div class="bg-white rounded-xl border border-slate-200 px-4 py-8 text-center">
+            <p class="text-[14px] font-medium text-slate-900">Belum ada lampiran</p>
+            <p class="text-[13px] text-slate-500 mt-1">
+              Quick test, actual values, dan foto konektor paling sering diminta
+              tim technical. Melampirkannya sekarang memangkas satu putaran bolak-balik.
+            </p>
+          </div>
+        </template>
+
+        <template x-for="a in attachments" :key="a.Attachment_ID">
+          <div class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center gap-3">
+            <i class="text-slate-400 text-[15px] shrink-0"
+               :class="fileIcon(a.Mime_Type)"></i>
+            <div class="min-w-0 flex-1">
+              <p class="text-[14px] text-slate-900 truncate" x-text="a.File_Name"></p>
+              <p class="text-[11px] text-slate-500">
+                <span x-text="a.Evidence_Type"></span>
+                <span x-text="' · ' + fileSize(a.Size_Bytes)"></span>
+                <span x-text="' · ' + ago(a.Uploaded_At)"></span>
+              </p>
+            </div>
+          </div>
+        </template>
+      </section>
+
+    </div>
+  </template>
+</main>

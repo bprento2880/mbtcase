@@ -202,6 +202,10 @@ dan sempat dipangkas, jadi cek angka terbaru saat setup). Strategi:
 Dengan pola ini, 15 dealer membuat ~20 case per hari = ~20–40 panggilan per hari.
 Aman jauh di bawah batas gratis manapun.
 
+> **REVISI (Fase 7):** baris `HTTP 5xx` dipecah. `503 UNAVAILABLE` diperlakukan
+> seperti 429 (retry sekali setelah 3 detik) karena itu penandaan model padat
+> yang lazim dan berumur pendek. 5xx lainnya tetap fallback langsung.
+
 ## 5. Tampilan advisory
 
 Panel di halaman detail case, bisa ditutup:

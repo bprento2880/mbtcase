@@ -234,10 +234,51 @@ yang boleh menghapus. Hapus = soft delete + trash file di Drive.
 ### Advisory
 | Action | Payload | Data |
 |---|---|---|
-| `advisory.get` | `{ caseNo, force }` | `{ source, priorityAdvice, recommendedEvidence[], notes, generatedAt }` |
+| `advisory.get` | `{ caseNo, force }` | lihat bentuk di bawah |
+| `advisory.acknowledge` | `{ caseNo, decision, context, note }` | `{ ok }` |
+
+Bentuk data `advisory.get`:
+```json
+{
+  "source": "RULE",
+  "priorityAdvice": { "dealerPriority": "Normal", "suggested": "Urgent", "reason": "..." },
+  "recommendedEvidence": [
+    { "ruleId": "ER-005", "evidenceType": "Actual_Value", "label": "...",
+      "priority": 1, "mandatory": false, "alreadyUploaded": false }
+  ],
+  "missingInformation": ["Kondisi saat gejala muncul belum diisi."],
+  "likelyDirection": "",
+  "confidence": "low",
+  "flags": [{ "type": "RECURRING_VIN", "detail": "2 case dalam 90 hari" }],
+  "generatedAt": "2026-09-01T09:15:00+07:00",
+  "cached": false
+}
+```
+
+> **REVISI (Fase 7):**
+> ```
+> KODE LAMA:
+> | advisory.get | { caseNo, force } | { source, priorityAdvice, recommendedEvidence[], notes, generatedAt } |
+>
+> KODE BARU:
+> { source, priorityAdvice, recommendedEvidence[], missingInformation[],
+>   likelyDirection, confidence, flags[], generatedAt, cached }
+> + action baru advisory.acknowledge
+> ```
+> Alasan: `notes` tidak pernah ada di schema Gemini (`07-ai-advisory.md` §4),
+> sementara `missingInformation`, `likelyDirection`, dan `confidence` ada di
+> schema tapi tidak punya tempat di kontrak. `flags[]` menampung penanda
+> non-priority: `SAFETY_KEYWORD`, `LONG_IN_WORKSHOP`, `RECURRING_VIN`.
+> `cached: true` berarti hasil diambil dari `AI_ADVISORY_LOG`, bukan panggilan baru.
+>
+> `advisory.acknowledge` mencatat pilihan dealer pada dialog self-diagnosis (§3)
+> ke `CASE_EVENTS` — sebelumnya diwajibkan docs tapi tidak punya action.
+> `decision`: `PROCEED` / `CONTINUE_SELF_DIAG` / `APPLIED` / `DISMISSED`.
+>
+> `advisory.get` dengan `force: true` dibatasi 5x per case per hari
+> (`03-rbac.md` §6); melebihi itu → `RATE_LIMIT`.
 
 Lihat `docs/07-ai-advisory.md`.
-
 ### Dashboard
 | Action | Payload | Data |
 |---|---|---|

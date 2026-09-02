@@ -61,6 +61,11 @@ var Session_ = (function () {
     const hit = cache.get(cacheKey);
     if (hit) return JSON.parse(hit);
 
+   // SESSIONS + USERS dalam SATU round-trip. Keduanya PASTI dibaca di jalur
+    // cache-miss ini, jadi tidak ada pembacaan yang mubazir. Diukur: dua
+    // getValues() terpisah ~850 ms, batchGet ~250 ms.
+    TC.preload([TC.S.SESSIONS, TC.S.USERS]);
+
     const parts = String(token).split('.');
     if (parts.length !== 3) throw new AppError('UNAUTHENTICATED', 'Sesi tidak valid.');
     if (!safeEqual_(parts[2], sign_(parts[0] + '.' + parts[1])))
@@ -73,7 +78,8 @@ var Session_ = (function () {
       throw new AppError('UNAUTHENTICATED', 'Sesi Anda sudah berakhir. Silakan login ulang.');
 
     // Cek sheet TETAP dilakukan supaya logout & pencabutan sesi benar-benar berlaku.
-    const row = TC.find(TC.S.SESSIONS, 'Token_Hash', sha256b64_(token));
+    // cacheKey sudah berisi hash yang sama — hitung sekali, pakai ulang.
+    const row = TC.find(TC.S.SESSIONS, 'Token_Hash', cacheKey.slice(5));
     if (!row) throw new AppError('UNAUTHENTICATED', 'Sesi tidak dikenal. Silakan login ulang.');
     if (row.Revoked === 'TRUE') throw new AppError('UNAUTHENTICATED', 'Sesi sudah dicabut.');
     if (TC.parseIso(row.Expires_At) <= new Date())
@@ -111,6 +117,17 @@ var Session_ = (function () {
     CacheService.getScriptCache().remove('sess_' + sha256b64_(token));
   }
 
+  /**
+   * Buang cache ctx sesi berjalan tanpa mencabutnya. Dipakai ketika atribut
+   * user berubah di tengah sesi (ganti PIN, ganti role) — tanpa ini ctx lama
+   * masih dipakai sampai CACHE_SEC habis. Token tidak dibawa ctx, jadi
+   * hash-nya diambil dari baris SESSIONS lewat Session_ID.
+   */
+  function invalidateSid(sid) {
+    const row = TC.find(TC.S.SESSIONS, 'Session_ID', sid);
+    if (row) CacheService.getScriptCache().remove('sess_' + row.Token_Hash);
+  }
+
   /** Ganti PIN mencabut semua sesi lain — 03-rbac.md §4. */
   function revokeAllForUser(userId, exceptSid) {
     TC.filter(TC.S.SESSIONS, function (r) {
@@ -119,5 +136,6 @@ var Session_ = (function () {
   }
 
   return { create: create, validate: validate, revokeToken: revokeToken,
-           revokeAllForUser: revokeAllForUser, safeEqual: safeEqual_, sha256b64: sha256b64_ };
+           revokeAllForUser: revokeAllForUser, invalidateSid: invalidateSid,
+           safeEqual: safeEqual_, sha256b64: sha256b64_ };
 })();

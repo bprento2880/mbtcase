@@ -3,6 +3,7 @@
 <head>
   <base target="_top">
   <meta charset="utf-8">
+  <link rel="icon" href="data:,">
   <?!= include('ui/css') ?>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
@@ -12,6 +13,7 @@
     <!-- Indikator koneksi server, kecil & tidak mengganggu -->
     <div class="fixed top-2 right-2 z-50 text-xs px-2 py-1 rounded-full font-medium"
          :class="ping.status === 'ok' ? 'bg-emerald-100 text-emerald-700' : (ping.status === 'checking' ? 'bg-slate-100 text-slate-500' : 'bg-red-100 text-red-700')"
+         x-show="ping.status !== 'ok' || !user"
          x-cloak>
       <span x-show="ping.status === 'ok'">● Server OK</span>
       <span x-show="ping.status === 'checking'">● Menghubungkan…</span>
@@ -20,7 +22,11 @@
 
     <?!= include('ui/partials_login') ?>
     <?!= include('ui/partials_changepin') ?>
+    <?!= include('ui/partials_appbar') ?>
     <?!= include('ui/partials_home') ?>
+    <?!= include('ui/partials_case_list') ?>
+    <?!= include('ui/partials_case_detail') ?>
+    <?!= include('ui/partials_case_new') ?>
 
     <!-- Layar aktif ditentukan Store.view ('login' | 'changePin' | 'home').
          Fase 2+ menambah view baru, jangan pakai token/flag terpisah. -->
@@ -48,6 +54,7 @@
   </script>
 
   <?!= include('ui/js_core') ?>
+  <?!= include('ui/js_case_new') ?>
   <?!= include('ui/js_pages') ?>
 </body>
 </html>

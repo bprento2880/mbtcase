@@ -21,6 +21,9 @@ const ROUTES = {
   'auth.logout':    function (ctx, payload) { return Auth_.logout(ctx, payload, ctx._token); },
   'auth.me':        function (ctx, payload) { return Auth_.me(ctx); },
   'auth.changePin': function (ctx, payload) { return Auth_.changePin(ctx, payload); },
+  // Patch Fase 2 — 14_Master.gs, tercantum di kontrak sejak Fase 0 tapi
+  // tidak pernah diimplementasikan. Ketahuan saat UI dikerjakan.
+  'master.bootstrap': function (ctx, payload) { return Master_.bootstrap(ctx); },
   // ── Fase 2 ────────────────────────────────────────────────
   'case.create':      function (ctx, payload) { return Case_.create(ctx, payload); },
   'case.get':         function (ctx, payload) { return Case_.get(ctx, payload); },
@@ -29,6 +32,11 @@ const ROUTES = {
   'case.transition':  function (ctx, payload) { return Case_.transition(ctx, payload); },
   'case.assign':      function (ctx, payload) { return Case_.assign(ctx, payload); },
   'case.setPriority': function (ctx, payload) { return Case_.setPriority(ctx, payload); },
+  // Patch Fase 2 — 21_DiagService.gs, terlewat saat Fase 2 dikerjakan.
+  'diag.save':        function (ctx, payload) { return Diag_.save(ctx, payload); },
+  // ── Fase 7 ────────────────────────────────────────────────
+  'advisory.get':         function (ctx, payload) { return Advisory_.get(ctx, payload); },
+  'advisory.acknowledge': function (ctx, payload) { return Advisory_.acknowledge(ctx, payload); },
   // ── Fase 5 ────────────────────────────────────────────────
   'thread.list':      function (ctx, payload) { return Thread_.list(ctx, payload); },
   'thread.post':      function (ctx, payload) { return Thread_.post(ctx, payload); },
@@ -136,4 +144,9 @@ function sysPing_(ctx, payload) {
       wa: cfg.FEATURE_WA === 'TRUE'
     }
   };
+}
+// Function public buat ngetest di tombol Run GAS
+function testRunPing() {
+  const hasil = sysPing_(null, null); // Manggil function yang pakai underscore
+  console.log(hasil);
 }

@@ -1,0 +1,5 @@
+﻿**/*[ ]*.html
+**/*[ ]*.txt
+**/*.txt
+.git/**
+node_modules/**

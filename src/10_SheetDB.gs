@@ -11,11 +11,31 @@ var TC = (function () {
     DIAG: 'CASE_DIAGNOSTICS', EVENTS: 'CASE_EVENTS', ATTACH: 'CASE_ATTACHMENTS',
     // ── Fase 4 ── registry folder Drive per case (01-schema.md §8)
     FOLDERS: 'CASE_FOLDERS',
-    // ── Fase 5 ── diskusi + permintaan data tambahan (01-schema.md §6, §11)
-    THREAD: 'CASE_THREAD', REQUESTS: 'DATA_REQUESTS'
+     // ── Fase 5 ── diskusi + permintaan data tambahan (01-schema.md §6, §11)
+    THREAD: 'CASE_THREAD', REQUESTS: 'DATA_REQUESTS',
+    // ── Fase 7 ── rule engine + jejak panggilan AI (01-schema.md §14, §16)
+    RULES: 'EVIDENCE_RULES', AI_LOG: 'AI_ADVISORY_LOG'
   };
   const CACHEABLE = { DEALERS: 21600, CONFIG: 21600, VEHICLE_MODELS: 21600,
-                      HOLIDAY_CALENDAR: 21600, EVIDENCE_RULES: 21600 };
+                      HOLIDAY_CALENDAR: 21600, EVIDENCE_RULES: 21600,
+                      // TTL pendek, bukan 6 jam: sheet ini sering berubah.
+                      // Aman karena setiap append/update memanggil invalidate()
+                      // yang menghapus key ini secara GLOBAL -- tidak ada user
+                      // yang bisa membaca data basi setelah user lain menulis.
+                      // TTL 90 detik hanya menutup celah kalau spreadsheet
+                      // diedit MANUAL, di luar aplikasi.
+                      CASES_MASTER: 90, CASE_THREAD: 90, CASE_EVENTS: 90,
+                      // Dibaca di SETIAP cache-miss Session_.validate.
+                      // USERS jarang berubah; SESSIONS berubah tiap login tapi
+                      // append/update sudah memanggil invalidate() yang
+                      // menghapus key ini secara global.
+                      USERS: 300, SESSIONS: 60,
+                      // Ditulis tiap panggilan Gemini, dibaca tiap case.get
+                      // untuk cek cache advisory. TTL pendek supaya hasil
+                      // Gemini baru langsung terlihat.
+                      AI_ADVISORY_LOG: 60,
+                      CASE_ATTACHMENTS: 90, CASE_DIAGNOSTICS: 90,
+                      DATA_REQUESTS: 90 };
 
   let _ss = null;
   function prop_(k) {
@@ -30,27 +50,103 @@ var TC = (function () {
     return sh;
   }
 
-  /** Baca satu sheet SEKALI, kembalikan array objek + nomor baris fisik. */
-  function readAll(name) {
-    const ttl = CACHEABLE[name];
-    if (ttl) {
-      const hit = CacheService.getScriptCache().get('sd_' + name);
-      if (hit) return JSON.parse(hit);
-    }
-    const values = sheet_(name).getDataRange().getValues();
-    if (values.length < 2) return [];
+  /**
+   * Memo per-EKSEKUSI. Beda dari CACHEABLE: umurnya hanya selama satu request,
+   * jadi tidak ada risiko data basi antar-user dan berlaku untuk SEMUA sheet.
+   *
+   * Alasannya diukur, bukan ditebak: satu case.get membaca CASES_MASTER dua kali
+   * (row() dan Advisory_.recurringVin()), masing-masing ~1,4 detik. Tanpa memo,
+   * separuh waktu request habis membaca sheet yang sama berulang.
+   *
+   * PERINGATAN: pemanggil TIDAK BOLEH memutasi objek hasil readAll/find —
+   * objeknya kini dipakai bersama dalam satu eksekusi. Semua service sudah
+   * menyalin dulu (toPublic, Diag_.forCase), jadi aman; jaga kebiasaan itu.
+   */
+  const _execMemo = {};
+/**
+   * Matriks nilai -> array objek. Dipakai readAll() DAN preload(), jadi aturan
+   * normalisasi (boolean, sel kosong) hanya ditulis sekali.
+   */
+  function toObjects_(values) {
+    if (!values || values.length < 2) return [];
     const head = values[0].map(String);
     const out = [];
     for (let i = 1; i < values.length; i++) {
       const o = { _row: i + 1 };
-      for (let c = 0; c < head.length; c++) if (head[c]) o[head[c]] = String(values[i][c]);
+      for (let c = 0; c < head.length; c++) {
+        if (!head[c]) continue;
+        const v = values[i][c];
+        // batchGet MEMOTONG sel kosong di ujung kanan baris, jadi v bisa
+        // undefined. Tanpa penjagaan ini, String(undefined) menghasilkan
+        // string "undefined" yang lolos ke UI sebagai teks.
+        if (v === undefined || v === null) { o[head[c]] = ''; continue; }
+        o[head[c]] = (typeof v === 'boolean') ? (v ? 'TRUE' : 'FALSE') : String(v);
+      }
       out.push(o);
     }
+    return out;
+  }
+
+  /** Baca satu sheet SEKALI, kembalikan array objek + nomor baris fisik. */
+  function readAll(name) {
+    if (_execMemo[name]) return _execMemo[name];
+    const ttl = CACHEABLE[name];
+    if (ttl) {
+      const hit = CacheService.getScriptCache().get('sd_' + name);
+      if (hit) return (_execMemo[name] = JSON.parse(hit));
+    }
+    const out = toObjects_(sheet_(name).getDataRange().getValues());
     if (ttl) {
       const s = JSON.stringify(out);
       if (s.length < 95000) CacheService.getScriptCache().put('sd_' + name, s, ttl);
+      // Lewat batas ini cache berhenti bekerja DIAM-DIAM dan performa turun
+      // tanpa sebab yang terlihat. Dicatat supaya ketahuan di Stackdriver.
+      else console.warn('Cache dilewati, ' + name + ' terlalu besar: ' +
+                        Math.round(s.length / 1024) + ' KB. Perlu paginasi/arsip.');
     }
+    _execMemo[name] = out;
     return out;
+  }
+  /**
+   * Baca BANYAK sheet sekaligus dalam SATU panggilan HTTP (Sheets API v4).
+   *
+   * Alasannya diukur: satu getValues() berbiaya 300-1700 ms terlepas dari
+   * jumlah barisnya (USERS 5 baris pernah 1755 ms). Biayanya per-round-trip,
+   * bukan per-data. case.get menyentuh 6 sheet -> 6 round-trip -> 3-5 detik.
+   * batchGet menjadikannya satu.
+   *
+   * Aman gagal: kalau Advanced Service belum aktif, fungsi ini diam saja dan
+   * readAll() tetap jalan seperti biasa, hanya lebih lambat.
+   */
+  function preload(names) {
+    const missing = (names || []).filter(function (nm) {
+      if (_execMemo[nm]) return false;
+      const ttl = CACHEABLE[nm];
+      if (!ttl) return true;
+      const hit = CacheService.getScriptCache().get('sd_' + nm);
+      if (!hit) return true;
+      _execMemo[nm] = JSON.parse(hit);
+      return false;
+    });
+    if (!missing.length) return;
+    if (typeof Sheets === 'undefined') return;   // Advanced Service belum aktif
+
+    try {
+      const res = Sheets.Spreadsheets.Values.batchGet(prop_('SHEET_ID'), {
+        ranges: missing.map(function (nm) { return "'" + nm + "'"; }),
+        // UNFORMATTED_VALUE, BUKAN FORMATTED_VALUE: yang terakhir mengembalikan
+        // "41,000" untuk Mileage dan Number() akan menghasilkan NaN.
+        valueRenderOption: 'UNFORMATTED_VALUE'
+      });
+      const vrs = res.valueRanges || [];
+      for (let i = 0; i < missing.length; i++) {
+        if (!vrs[i]) continue;                    // urutan respons = urutan ranges
+        _execMemo[missing[i]] = toObjects_(vrs[i].values || []);
+      }
+    } catch (e) {
+      // Jangan lempar. Kegagalan preload cuma berarti kembali ke jalur lambat.
+      console.error('TC.preload: ' + e);
+    }
   }
 
   function find(name, col, val) {
@@ -175,6 +271,8 @@ var TC = (function () {
   }
 
   function invalidate(name) {
+    delete _execMemo[name];       // WAJIB: tanpa ini, pembacaan setelah
+                                  // append/update mengembalikan data sebelum tulisan
     CacheService.getScriptCache().remove('sd_' + name);
     // CONFIG punya DUA cache: 'sd_CONFIG' di sini dan 'cfg_all' di Config_
     // (00_Config.gs). Kalau hanya satu yang dibuang, CASE_COUNTER bisa terbaca
@@ -211,7 +309,7 @@ var TC = (function () {
    */
   function flush() { SpreadsheetApp.flush(); }
 
-  return { S: S, readAll: readAll, find: find, filter: filter, append: append,
+ return { S: S, readAll: readAll, preload: preload, find: find, filter: filter, append: append,
            appendMany: appendMany, update: update, invalidate: invalidate,
            config: config, cfgNum: cfgNum, nowIso: nowIso, isoOf: isoOf,
            parseIso: parseIso, withLock: withLock, flush: flush, prop: prop_ };
